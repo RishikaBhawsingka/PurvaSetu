@@ -6,6 +6,7 @@ import Home from "../screens/home";
 import Login from "../screens/login";
 import Signup from "../screens/signup";
 import Route from "../screens/route";
+import BackendTest from "../screens/BackendTest";
 
 const Stack = createNativeStackNavigator();
 
@@ -22,6 +23,7 @@ export default function MainNavigation() {
         <Stack.Screen name="Login" component={Login} />
         <Stack.Screen name="Signup" component={Signup} />
         <Stack.Screen name="Route" component={Route} />
+        <Stack.Screen name="BackendTest" component={BackendTest} />
       </Stack.Navigator>
     </NavigationContainer>
   );
