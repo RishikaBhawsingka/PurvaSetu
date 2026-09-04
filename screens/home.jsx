@@ -26,7 +26,7 @@ const Home = ({ navigation }) => {
 
           {/* Small Header Logo */}
           <Text style={styles.headerLogo}>
-            PURVASETU
+            PurvaSetu
           </Text>
 
           {/* Authentication Buttons */}
