@@ -1,459 +1,842 @@
-/**import { StyleSheet, Text, View, TouchableOpacity } from 'react-native'
-import React from 'react'
-
-const Home = () => {
-  return (
-    <View style={styles.container}>
-
-      <Text style={styles.title}>
-        Welcome 👋
-      </Text>
-
-      <Text style={styles.subtitle}>
-         to making of NER Project.
-      </Text>
-
-      <TouchableOpacity style={styles.button}>
-        <Text style={styles.buttonText}>
-          Hello
-        </Text>
-      </TouchableOpacity>
-
-    </View>
-  )
-}
-
-export default Home
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#222',
-    marginBottom: 10,
-  },
-
-  subtitle: {
-    fontSize: 18,
-    color: '#666',
-    marginBottom: 30,
-  },
-
-  button: {
-    backgroundColor: '#944b9aff',
-    paddingVertical: 14,
-    paddingHorizontal: 30,
-    borderRadius: 12,
-  },
-
-  buttonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-})**/
-
-import react from "react";
+import React from "react";
 import {
   StyleSheet,
   Text,
   View,
   TouchableOpacity,
   StatusBar,
-} from 'react-native'
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { SafeAreaView } from 'react-native-safe-area-context'
 const Home = ({ navigation }) => {
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#EDE8DC" />
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="#F3F0E7"
+      />
 
       <View style={styles.container}>
 
-        {/* HEADER */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.logo}>
-              PurvaSetu <Text style={styles.logoAI}>AI</Text>
-            </Text>
+        {/* ================================================= */}
+        {/* HEADER                                            */}
+        {/* ================================================= */}
 
-            <Text style={styles.tagline}>
-              Logistics & Accessibility Intelligence
-            </Text>
+        <View style={styles.header}>
+
+          {/* Small Header Logo */}
+          <Text style={styles.headerLogo}>
+            PURVASETU
+          </Text>
+
+          {/* Authentication Buttons */}
+          <View style={styles.authContainer}>
+
+            {/* Login */}
+            <TouchableOpacity
+              style={styles.loginButton}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate("Login")}
+            >
+              <Text style={styles.loginText}>
+                Login
+              </Text>
+            </TouchableOpacity>
+
+            {/* Sign Up */}
+            <TouchableOpacity
+              style={styles.signupButton}
+              activeOpacity={0.8}
+              onPress={() => navigation.navigate("Signup")}
+            >
+              <Text style={styles.signupText}>
+                Sign Up
+              </Text>
+            </TouchableOpacity>
+
           </View>
 
-          <View style={styles.statusDot} />
         </View>
 
 
-        {/* LOGIN / SIGN UP */}
-        <View style={styles.authContainer}>
+        {/* ================================================= */}
+        {/* MAIN CONTENT                                      */}
+        {/* ================================================= */}
 
-          <TouchableOpacity
-  style={styles.loginButton}
-  onPress={() => navigation.navigate('Login')}
->
-            <Text style={styles.loginText}>Login</Text>
-          </TouchableOpacity>
+        <View style={styles.mainContent}>
 
-          <TouchableOpacity
-  style={styles.signupButton}
-  onPress={() => navigation.navigate('Signup')}
->
-            <Text style={styles.signupText}>Sign Up</Text>
-          </TouchableOpacity>
-
-        </View>
-
-
-        {/* HERO SECTION */}
-        <View style={styles.hero}>
-
+          {/* Eyebrow */}
           <Text style={styles.eyebrow}>
             SMART ROUTE INTELLIGENCE
           </Text>
 
-          <Text style={styles.title}>
-            Navigate NER{'\n'}
-            <Text style={styles.titleAccent}>with confidence.</Text>
+
+          {/* ================================================= */}
+          {/* MAIN BRAND LOGO                                  */}
+          {/* ================================================= */}
+
+          <View style={styles.mainLogoContainer}>
+
+            <Text
+              style={styles.mainLogo}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.65}
+            >
+              PURVA
+              <Text style={styles.logoAccent}>
+                SETU
+              </Text>
+            </Text>
+
+          </View>
+
+
+          {/* ================================================= */}
+          {/* TAGLINE                                           */}
+          {/* ================================================= */}
+
+          <Text style={styles.tagline}>
+            Bridging Distances,{"\n"}
+            Connecting the Northeast
           </Text>
+
+
+          {/* ================================================= */}
+          {/* DECORATIVE DIVIDER                                */}
+          {/* ================================================= */}
+
+          <View style={styles.decorativeLine}>
+
+            <View style={styles.line} />
+
+            <View style={styles.dot} />
+
+            <View style={styles.line} />
+
+          </View>
+
+
+          {/* ================================================= */}
+          {/* DESCRIPTION                                       */}
+          {/* ================================================= */}
 
           <Text style={styles.description}>
-            Intelligent route planning for the North Eastern Region,
-            even when connectivity is limited.
+            Intelligent navigation designed for the
+            unique roads and connectivity challenges
+            of Northeast India.
           </Text>
 
-        </View>
+
+          {/* ================================================= */}
+          {/* ROUTE FEATURE CARDS                               */}
+          {/* ================================================= */}
+
+          <View style={styles.featureCards}>
+
+            {/* ================================================= */}
+            {/* FASTEST CARD                                      */}
+            {/* ================================================= */}
+
+            <View style={styles.featureCard}>
+
+              <View
+                style={[
+                  styles.featureIcon,
+                  styles.fastestIcon,
+                ]}
+              >
+                <Text style={styles.featureIconText}>
+                  ↗
+                </Text>
+              </View>
+
+              <Text style={styles.featureTitle}>
+                Fastest
+              </Text>
+
+              <Text style={styles.featureSubtitle}>
+                Reach quicker with{"\n"}
+                optimized routes.
+              </Text>
+
+            </View>
 
 
-        {/* MAIN CTA */}
-        <TouchableOpacity style={styles.routeButton}
-        onPress={() => navigation.navigate("Route")} activeOpacity={0.85}>
+            {/* ================================================= */}
+            {/* SAFEST CARD                                       */}
+            {/* ================================================= */}
 
-          <View style={styles.routeIcon}>
-            <Text style={styles.routeIconText}>⌖</Text>
+            <View style={styles.featureCard}>
+
+              <View
+                style={[
+                  styles.featureIcon,
+                  styles.safestIcon,
+                ]}
+              >
+                <Text style={styles.featureIconText}>
+                  ✓
+                </Text>
+              </View>
+
+              <Text style={styles.featureTitle}>
+                Safest
+              </Text>
+
+              <Text style={styles.featureSubtitle}>
+                Navigate secure routes{"\n"}
+                with real-time insights.
+              </Text>
+
+            </View>
+
           </View>
 
-          <View style={styles.routeButtonContent}>
-            <Text style={styles.routeButtonTitle}>
-              Find Best Route
-            </Text>
 
-            <Text style={styles.routeButtonSubtitle}>
-              Fastest • Safest • Accessible
-            </Text>
-          </View>
+          {/* ================================================= */}
+          {/* FIND BEST ROUTE CTA                               */}
+          {/* ================================================= */}
 
-          <Text style={styles.arrow}>→</Text>
+          <TouchableOpacity
+            style={styles.routeButton}
+            activeOpacity={0.88}
+            onPress={() => navigation.navigate("Route")}
+          >
 
-        </TouchableOpacity>
+            {/* Left Side */}
+            <View style={styles.routeLeft}>
 
-
-        {/* FEATURE CARDS */}
-        <View style={styles.features}>
-
-          <View style={styles.featureCard}>
-            <Text style={styles.featureIcon}>⌁</Text>
-
-            <Text style={styles.featureTitle}>
-              Offline Maps
-            </Text>
-
-            <Text style={styles.featureText}>
-              Navigate even{'\n'}without network
-            </Text>
-          </View>
+              {/* Route Icon */}
+              <View style={styles.routeIcon}>
+                <Text style={styles.routeIconText}>
+                  ⌖
+                </Text>
+              </View>
 
 
-          <View style={styles.featureCard}>
-            <Text style={styles.featureIcon}>!</Text>
+              {/* Route Text */}
+              <View style={styles.routeButtonContent}>
 
-            <Text style={styles.featureTitle}>
-              Risk Alerts
-            </Text>
+                <Text style={styles.routeTitle}>
+                  Find Best Route
+                </Text>
 
-            <Text style={styles.featureText}>
-              Detect route{'\n'}disruptions
-            </Text>
-          </View>
+                <Text style={styles.routeSubtitle}>
+                  Fastest • Safest • Accessible
+                </Text>
 
-        </View>
+              </View>
+
+            </View>
 
 
-        {/* BOTTOM INFO */}
-        <View style={styles.bottomInfo}>
+            {/* Arrow */}
+            <View style={styles.arrowContainer}>
+              <Text style={styles.arrow}>
+                →
+              </Text>
+            </View>
 
-          <View style={styles.smallStatus} />
+          </TouchableOpacity>
 
-          <Text style={styles.bottomText}>
-            Built for low-connectivity regions across NER
+
+          {/* ================================================= */}
+          {/* BOTTOM MESSAGE                                    */}
+          {/* ================================================= */}
+
+          <Text style={styles.bottomMessage}>
+            Built for low connectivity regions across NER
           </Text>
 
         </View>
 
       </View>
     </SafeAreaView>
-  )
-}
+  );
+};
 
-export default Home
+export default Home;
 
+
+/* ========================================================= */
+/*                         STYLES                             */
+/* ========================================================= */
 
 const styles = StyleSheet.create({
 
+  /* ======================================================= */
+  /* SAFE AREA                                               */
+  /* ======================================================= */
+
   safeArea: {
     flex: 1,
-    backgroundColor: '#EDE8DC',
+    backgroundColor: "#F3F0E7",
   },
+
+
+  /* ======================================================= */
+  /* MAIN CONTAINER                                          */
+  /* ======================================================= */
 
   container: {
     flex: 1,
-    backgroundColor: '#EDE8DC',
-    paddingHorizontal: 24,
-    paddingTop: 18,
+    backgroundColor: "#F3F0E7",
+    paddingHorizontal: 22,
   },
 
 
-  /* HEADER */
+  /* ======================================================= */
+  /* HEADER                                                   */
+  /* ======================================================= */
 
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
+    height: 72,
 
-  logo: {
-    fontSize: 20,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-    color: '#30483B',
-  },
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
 
-  logoAI: {
-    color: '#A9573F',
-  },
-
-  tagline: {
-    marginTop: 3,
-    fontSize: 9,
-    letterSpacing: 0.7,
-    color: '#6E7169',
-    fontWeight: '500',
-  },
-
-  statusDot: {
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    backgroundColor: '#30483B',
-    borderWidth: 3,
-    borderColor: '#CBD0C0',
+    borderBottomWidth: 1,
+    borderBottomColor: "#D8D5C9",
   },
 
 
-  /* AUTH */
+  /* Header PURVASETU */
+
+  headerLogo: {
+    fontSize: 19,
+
+    fontWeight: "900",
+
+    letterSpacing: 2,
+
+    color: "#29463A",
+  },
+
+
+  /* ======================================================= */
+  /* AUTH BUTTONS                                             */
+  /* ======================================================= */
 
   authContainer: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    marginTop: 22,
-    gap: 9,
+    flexDirection: "row",
+
+    alignItems: "center",
+
+    gap: 8,
   },
+
+
+  /* ======================================================= */
+  /* LOGIN BUTTON                                             */
+  /* ======================================================= */
 
   loginButton: {
-    paddingVertical: 9,
-    paddingHorizontal: 17,
+    height: 38,
+
+    paddingHorizontal: 15,
+
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#30483B',
+
+    borderWidth: 1.5,
+
+    borderColor: "#29463A",
+
+    justifyContent: "center",
+
+    alignItems: "center",
   },
+
 
   loginText: {
-    color: '#30483B',
     fontSize: 13,
-    fontWeight: '600',
+
+    fontWeight: "700",
+
+    color: "#29463A",
   },
+
+
+  /* ======================================================= */
+  /* SIGN UP BUTTON                                           */
+  /* ======================================================= */
 
   signupButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 18,
+    height: 38,
+
+    paddingHorizontal: 16,
+
     borderRadius: 20,
-    backgroundColor: '#30483B',
+
+    backgroundColor: "#29463A",
+
+    justifyContent: "center",
+
+    alignItems: "center",
   },
+
 
   signupText: {
-    color: '#EDE8DC',
     fontSize: 13,
-    fontWeight: '700',
+
+    fontWeight: "700",
+
+    color: "#F3F0E7",
   },
 
 
-  /* HERO */
+  /* ======================================================= */
+  /* MAIN CONTENT                                             */
+  /* ======================================================= */
 
-  hero: {
-    marginTop: 55,
+  mainContent: {
+    flex: 1,
+
+    alignItems: "center",
+
+    justifyContent: "center",
+
+    paddingBottom: 20,
   },
+
+
+  /* ======================================================= */
+  /* EYEBROW                                                  */
+  /* ======================================================= */
 
   eyebrow: {
     fontSize: 11,
-    letterSpacing: 1.5,
-    fontWeight: '800',
-    color: '#B8944A',
-    marginBottom: 12,
+
+    letterSpacing: 2.2,
+
+    fontWeight: "800",
+
+    color: "#B38D42",
+
+    marginBottom: 14,
+
+    textAlign: "center",
   },
 
-  title: {
-    fontSize: 38,
-    lineHeight: 43,
-    fontWeight: '800',
-    color: '#20231F',
+
+  /* ======================================================= */
+  /* MAIN LOGO                                                */
+  /* ======================================================= */
+
+  mainLogoContainer: {
+    width: "100%",
+
+    alignItems: "center",
+
+    justifyContent: "center",
   },
 
-  titleAccent: {
-    color: '#A9573F',
+
+  mainLogo: {
+    fontSize: 52,
+
+    lineHeight: 60,
+
+    fontWeight: "900",
+
+    letterSpacing: -1.5,
+
+    color: "#20231F",
+
+    textAlign: "center",
+
+    includeFontPadding: false,
   },
+
+
+  /* SETU accent */
+
+  logoAccent: {
+    color: "#A9573F",
+  },
+
+
+  /* ======================================================= */
+  /* TAGLINE                                                  */
+  /* ======================================================= */
+
+  tagline: {
+    marginTop: 8,
+
+    fontSize: 18,
+
+    lineHeight: 25,
+
+    fontWeight: "600",
+
+    color: "#596057",
+
+    textAlign: "center",
+
+    letterSpacing: 0.1,
+  },
+
+
+  /* ======================================================= */
+  /* DECORATIVE LINE                                          */
+  /* ======================================================= */
+
+  decorativeLine: {
+    flexDirection: "row",
+
+    alignItems: "center",
+
+    justifyContent: "center",
+
+    marginTop: 27,
+
+    marginBottom: 24,
+
+    width: "65%",
+  },
+
+
+  line: {
+    flex: 1,
+
+    height: 1,
+
+    backgroundColor: "#D1CEC1",
+  },
+
+
+  dot: {
+    width: 7,
+
+    height: 7,
+
+    borderRadius: 5,
+
+    backgroundColor: "#B38D42",
+
+    marginHorizontal: 10,
+  },
+
+
+  /* ======================================================= */
+  /* DESCRIPTION                                              */
+  /* ======================================================= */
 
   description: {
-    marginTop: 17,
-    fontSize: 15,
-    lineHeight: 23,
-    color: '#5C6058',
-    maxWidth: 330,
+    maxWidth: 315,
+
+    fontSize: 14,
+
+    lineHeight: 22,
+
+    fontWeight: "500",
+
+    color: "#6A6D65",
+
+    textAlign: "center",
+
+    marginBottom: 24,
   },
 
 
-  /* ROUTE BUTTON */
+  /* ======================================================= */
+  /* FEATURE CARDS                                            */
+  /* ======================================================= */
 
-  routeButton: {
-    marginTop: 34,
-    backgroundColor: '#30483B',
-    borderRadius: 18,
-    padding: 17,
-    flexDirection: 'row',
-    alignItems: 'center',
+  featureCards: {
+    width: "100%",
 
-    shadowColor: '#20231F',
+    flexDirection: "row",
+
+    justifyContent: "space-between",
+
+    alignItems: "stretch",
+
+    marginBottom: 18,
+
+    paddingHorizontal: 2,
+  },
+
+
+  /* ======================================================= */
+  /* INDIVIDUAL FEATURE CARD                                  */
+  /* ======================================================= */
+
+  featureCard: {
+    width: "48.2%",
+
+    minHeight: 145,
+
+    backgroundColor: "#F8F7F1",
+
+    borderRadius: 22,
+
+    alignItems: "center",
+
+    justifyContent: "flex-start",
+
+    paddingTop: 15,
+
+    paddingBottom: 13,
+
+    paddingHorizontal: 7,
+
+    borderWidth: 1,
+
+    borderColor: "#E1DED3",
+
+    /* iOS shadow */
+    shadowColor: "#20231F",
+
     shadowOffset: {
       width: 0,
-      height: 5,
+
+      height: 6,
     },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
+
+    shadowOpacity: 0.13,
+
+    shadowRadius: 9,
+
+    /* Android shadow */
+    elevation: 5,
   },
+
+
+  /* ======================================================= */
+  /* FEATURE ICONS                                            */
+  /* ======================================================= */
+
+  featureIcon: {
+    width: 46,
+
+    height: 46,
+
+    borderRadius: 23,
+
+    justifyContent: "center",
+
+    alignItems: "center",
+
+    marginBottom: 9,
+  },
+
+
+  /* Fastest */
+
+  fastestIcon: {
+    backgroundColor: "#E4EBDD",
+  },
+
+
+  /* Safest */
+
+  safestIcon: {
+    backgroundColor: "#E1E9E1",
+  },
+
+
+  featureIconText: {
+    fontSize: 22,
+
+    fontWeight: "800",
+
+    color: "#29463A",
+  },
+
+
+  /* ======================================================= */
+  /* FEATURE TITLE                                            */
+  /* ======================================================= */
+
+  featureTitle: {
+    fontSize: 14,
+
+    fontWeight: "800",
+
+    color: "#29322D",
+
+    marginBottom: 5,
+
+    textAlign: "center",
+  },
+
+
+  /* ======================================================= */
+  /* FEATURE DESCRIPTION                                      */
+  /* ======================================================= */
+
+  featureSubtitle: {
+    fontSize: 10.5,
+
+    lineHeight: 15,
+
+    fontWeight: "500",
+
+    color: "#777A72",
+
+    textAlign: "center",
+  },
+
+
+  /* ======================================================= */
+  /* FIND BEST ROUTE                                          */
+  /* ======================================================= */
+
+  routeButton: {
+    width: "100%",
+
+    minHeight: 82,
+
+    borderRadius: 22,
+
+    backgroundColor: "#29463A",
+
+    flexDirection: "row",
+
+    alignItems: "center",
+
+    justifyContent: "space-between",
+
+    paddingLeft: 14,
+
+    paddingRight: 12,
+
+    shadowColor: "#20231F",
+
+    shadowOffset: {
+      width: 0,
+
+      height: 7,
+    },
+
+    shadowOpacity: 0.16,
+
+    shadowRadius: 12,
+
+    elevation: 6,
+  },
+
+
+  /* ======================================================= */
+  /* ROUTE LEFT                                               */
+  /* ======================================================= */
+
+  routeLeft: {
+    flexDirection: "row",
+
+    alignItems: "center",
+
+    flex: 1,
+  },
+
+
+  /* ======================================================= */
+  /* ROUTE ICON                                               */
+  /* ======================================================= */
 
   routeIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 14,
-    backgroundColor: '#CBD0C0',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 54,
+
+    height: 54,
+
+    borderRadius: 17,
+
+    backgroundColor: "#D8DED2",
+
+    justifyContent: "center",
+
+    alignItems: "center",
+
+    marginRight: 13,
   },
 
+
   routeIconText: {
-    fontSize: 27,
-    color: '#30483B',
-    fontWeight: '700',
+    fontSize: 28,
+
+    color: "#29463A",
+
+    fontWeight: "700",
   },
+
+
+  /* ======================================================= */
+  /* ROUTE TEXT                                               */
+  /* ======================================================= */
 
   routeButtonContent: {
     flex: 1,
-    marginLeft: 13,
   },
 
-  routeButtonTitle: {
-    color: '#EDE8DC',
-    fontSize: 17,
-    fontWeight: '700',
+
+  routeTitle: {
+    fontSize: 18,
+
+    fontWeight: "800",
+
+    color: "#F3F0E7",
+
+    marginBottom: 4,
   },
 
-  routeButtonSubtitle: {
-    marginTop: 4,
-    color: '#CBD0C0',
+
+  routeSubtitle: {
     fontSize: 11,
+
+    fontWeight: "600",
+
+    color: "#C9D0C5",
+
+    letterSpacing: 0.2,
   },
+
+
+  /* ======================================================= */
+  /* ARROW                                                    */
+  /* ======================================================= */
+
+  arrowContainer: {
+    width: 42,
+
+    height: 42,
+
+    borderRadius: 21,
+
+    backgroundColor: "#3D594C",
+
+    justifyContent: "center",
+
+    alignItems: "center",
+  },
+
 
   arrow: {
-    color: '#EDE8DC',
-    fontSize: 25,
-    fontWeight: '300',
-    marginLeft: 8,
+    fontSize: 23,
+
+    color: "#F3F0E7",
+
+    fontWeight: "400",
   },
 
 
-  /* FEATURES */
+  /* ======================================================= */
+  /* BOTTOM MESSAGE                                           */
+  /* ======================================================= */
 
-  features: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 18,
-  },
+  bottomMessage: {
+    marginTop: 20,
 
-  featureCard: {
-    flex: 1,
-    backgroundColor: '#CBD0C0',
-    borderRadius: 17,
-    padding: 17,
-    minHeight: 125,
-  },
-
-  featureIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    backgroundColor: '#EDE8DC',
-    textAlign: 'center',
-    textAlignVertical: 'center',
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#A9573F',
-    marginBottom: 13,
-  },
-
-  featureTitle: {
-    color: '#20231F',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-
-  featureText: {
-    marginTop: 5,
-    color: '#596057',
     fontSize: 11,
-    lineHeight: 16,
+
+    fontWeight: "600",
+
+    color: "#85877F",
+
+    letterSpacing: 0.2,
+
+    textAlign: "center",
   },
 
-
-  /* BOTTOM */
-
-  bottomInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 'auto',
-    marginBottom: 18,
-  },
-
-  smallStatus: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#B8944A',
-    marginRight: 7,
-  },
-
-  bottomText: {
-    color: '#777A72',
-    fontSize: 10,
-  },
-
-})
+});
