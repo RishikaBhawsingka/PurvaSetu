@@ -1,57 +1,122 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
+  TouchableOpacity,
   ScrollView,
+  ActivityIndicator,
   Alert,
 } from "react-native";
-import MapView, { Marker, Polyline } from "react-native-maps";
+
 import * as Location from "expo-location";
+import MapView, { Marker, Polyline } from "react-native-maps";
+import { Picker } from "@react-native-picker/picker";
+
+import {
+  getLocations,
+  analyzeRoute,
+} from "../services/api";
+
+const OSRM_URL =
+  "https://router.project-osrm.org/route/v1/driving";
 
 export default function Route({ navigation }) {
-  const [start, setStart] = useState("");
-  const [destination, setDestination] = useState("");
-  const [showMap, setShowMap] = useState(false);
+  const [locations, setLocations] = useState([]);
 
-  // GPS state
-  const [currentLocation, setCurrentLocation] = useState(null);
-  const [locationLoading, setLocationLoading] = useState(false);
+  const [startId, setStartId] = useState("");
+  const [destinationId, setDestinationId] = useState("");
 
-  // Real route state
-  const [routeCoordinates, setRouteCoordinates] = useState([]);
-  const [routeDistance, setRouteDistance] = useState(null);
-  const [routeDuration, setRouteDuration] = useState(null);
-  const [routeLoading, setRouteLoading] = useState(false);
-
-  // Destination coordinates
-  const [destinationLocation, setDestinationLocation] =
+  const [currentLocation, setCurrentLocation] =
     useState(null);
 
-  // ---------------------------------------------------------
-  // GET CURRENT GPS LOCATION
-  // ---------------------------------------------------------
+  const [routeCoordinates, setRouteCoordinates] =
+    useState([]);
 
-  const getCurrentLocation = async () => {
+  const [result, setResult] = useState(null);
+
+  const [loadingLocations, setLoadingLocations] =
+    useState(true);
+
+  const [loadingRoute, setLoadingRoute] =
+    useState(false);
+
+  const [status, setStatus] = useState(
+    "Loading NER locations..."
+  );
+
+  // --------------------------------------------------
+  // LOAD ALL 46 NER LOCATIONS
+  // --------------------------------------------------
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadLocations = async () => {
+      try {
+        const data = await getLocations();
+
+        if (!mounted) return;
+
+        setLocations(data);
+
+        setStatus(
+          "Select your starting point and destination."
+        );
+      } catch (error) {
+        console.log(
+          "❌ LOCATION LOAD ERROR:",
+          error
+        );
+
+        if (mounted) {
+          setStatus(
+            "❌ Could not load NER locations."
+          );
+        }
+      } finally {
+        if (mounted) {
+          setLoadingLocations(false);
+        }
+      }
+    };
+
+    loadLocations();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // --------------------------------------------------
+  // GPS
+  // --------------------------------------------------
+
+  const useCurrentLocation = async () => {
     try {
-      setLocationLoading(true);
+      setStatus(
+        "Getting your current location..."
+      );
 
       const { status } =
         await Location.requestForegroundPermissionsAsync();
 
       if (status !== "granted") {
+        setStatus(
+          "❌ Location permission denied."
+        );
+
         Alert.alert(
           "Location Permission",
-          "Location permission is required to use your current location."
+          "Please allow location access to use GPS."
         );
+
         return;
       }
 
       const location =
         await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
+          accuracy: Location.Accuracy.Balanced,
         });
 
       const coords = {
@@ -61,1079 +126,1019 @@ export default function Route({ navigation }) {
 
       setCurrentLocation(coords);
 
-      // Put GPS coordinates into the start field
-      setStart(
-        `${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}`
+      // Clear manual starting location
+      setStartId("");
+
+      // Clear previous route
+      setRouteCoordinates([]);
+      setResult(null);
+
+      setStatus(
+        "✅ Current GPS location selected."
       );
 
-      console.log("Current GPS location:", coords);
+      console.log(
+        "📍 CURRENT GPS:",
+        coords
+      );
     } catch (error) {
-      console.log("Location error:", error);
-
-      Alert.alert(
-        "Location Error",
-        "Unable to get your current location. Please make sure GPS is enabled."
+      console.log(
+        "❌ GPS ERROR:",
+        error
       );
-    } finally {
-      setLocationLoading(false);
+
+      setStatus(
+        "❌ Could not get your current location."
+      );
     }
   };
 
-  // ---------------------------------------------------------
-  // GEOCODE A PLACE NAME
-  // Example:
-  // "Guwahati" -> latitude/longitude
-  // "Tawang" -> latitude/longitude
-  // ---------------------------------------------------------
+  // --------------------------------------------------
+  // GET OSRM ROAD ROUTE
+  // --------------------------------------------------
 
-  /**const geocodeLocation = async (place) => {
+  const getOSRMRoute = async (
+    startCoordinate,
+    destinationCoordinate
+  ) => {
     try {
-      // Check if the user entered coordinates directly.
-      // Example: 26.1445, 91.7362
-      const coordinateMatch = place
-        .trim()
-        .match(
-          /^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/
-        );
+      const coordinates =
+        `${startCoordinate.longitude},${startCoordinate.latitude};` +
+        `${destinationCoordinate.longitude},${destinationCoordinate.latitude}`;
 
-      if (coordinateMatch) {
-        return {
-          latitude: parseFloat(coordinateMatch[1]),
-          longitude: parseFloat(coordinateMatch[2]),
+      /*
+       * overview=simplified keeps the number of
+       * coordinates much smaller than overview=full.
+       *
+       * This is important for React Native Maps
+       * performance on long NER routes.
+       */
+
+      const response = await fetch(
+        `${OSRM_URL}/${coordinates}?overview=simplified&geometries=geojson`
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `OSRM returned ${response.status}`
+        );
+      }
+
+      const data = await response.json();
+
+      if (
+        !data.routes ||
+        data.routes.length === 0
+      ) {
+        throw new Error(
+          "No road route found."
+        );
+      }
+
+      const coordinatesArray =
+        data.routes[0].geometry.coordinates;
+
+      return coordinatesArray.map(
+        ([longitude, latitude]) => ({
+          latitude,
+          longitude,
+        })
+      );
+    } catch (error) {
+      console.log(
+        "❌ OSRM ERROR:",
+        error
+      );
+
+      return [];
+    }
+  };
+
+  // --------------------------------------------------
+  // FIND ROUTE
+  // --------------------------------------------------
+
+  const handleFindRoute = async () => {
+    // Prevent double tapping
+    if (loadingRoute) {
+      return;
+    }
+
+    // Destination is always required
+    if (!destinationId) {
+      setStatus(
+        "Please select a destination."
+      );
+      return;
+    }
+
+    // Either GPS or manual start is required
+    if (!startId && !currentLocation) {
+      setStatus(
+        "Please select a starting location or use GPS."
+      );
+      return;
+    }
+
+    try {
+      setLoadingRoute(true);
+
+      // Remove previous result immediately
+      setResult(null);
+      setRouteCoordinates([]);
+
+      setStatus(
+        "Analyzing safest and fastest routes..."
+      );
+
+      // ------------------------------------------------
+      // DETERMINE START
+      // ------------------------------------------------
+
+      let backendStartId;
+      let mapStartCoordinate;
+
+      if (currentLocation) {
+        /*
+         * GPS is outside the fixed database locations.
+         *
+         * For now, use the nearest NER location as the
+         * backend routing origin.
+         */
+
+        let nearestLocation = null;
+        let nearestDistance = Infinity;
+
+        locations.forEach((location) => {
+          const lat =
+            Number(location.latitude);
+
+          const lng =
+            Number(location.longitude);
+
+          const distance =
+            Math.pow(
+              lat -
+                currentLocation.latitude,
+              2
+            ) +
+            Math.pow(
+              lng -
+                currentLocation.longitude,
+              2
+            );
+
+          if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestLocation = location;
+          }
+        });
+
+        if (!nearestLocation) {
+          throw new Error(
+            "Could not determine nearest NER location."
+          );
+        }
+
+        backendStartId =
+          Number(nearestLocation.id);
+
+        mapStartCoordinate =
+          currentLocation;
+
+        console.log(
+          "📍 GPS NEAREST NER LOCATION:",
+          nearestLocation.name,
+          nearestLocation.id
+        );
+      } else {
+        const startLocation =
+          locations.find(
+            (item) =>
+              String(item.id) ===
+              String(startId)
+          );
+
+        if (!startLocation) {
+          throw new Error(
+            "Starting location not found."
+          );
+        }
+
+        backendStartId =
+          Number(startLocation.id);
+
+        mapStartCoordinate = {
+          latitude: Number(
+            startLocation.latitude
+          ),
+          longitude: Number(
+            startLocation.longitude
+          ),
         };
       }
 
-      // Search within India / NER context
-      const query = `${place}, Northeast India, India`;
+      // ------------------------------------------------
+      // DESTINATION
+      // ------------------------------------------------
 
-      const url =
-        "https://nominatim.openstreetmap.org/search" +
-        `?q=${encodeURIComponent(query)}` +
-        "&format=jsonv2" +
-        "&limit=1" +
-        "&countrycodes=in";
+      const destinationLocation =
+        locations.find(
+          (item) =>
+            String(item.id) ===
+            String(destinationId)
+        );
 
-      const response = await fetch(url, {
-        headers: {
-          Accept: "application/json",
-          "User-Agent": "NER-Sentinel-AI/1.0",
-        },
-      });
-
-      if (!response.ok) {
+      if (!destinationLocation) {
         throw new Error(
-          `Geocoding request failed: ${response.status}`
+          "Destination location not found."
         );
       }
 
-      const data = await response.json();
+      const backendDestinationId =
+        Number(destinationLocation.id);
 
-      if (!data || data.length === 0) {
+      const mapDestinationCoordinate = {
+        latitude: Number(
+          destinationLocation.latitude
+        ),
+        longitude: Number(
+          destinationLocation.longitude
+        ),
+      };
+
+      // Same location check
+      if (
+        backendStartId ===
+        backendDestinationId
+      ) {
         throw new Error(
-          `Could not find location: ${place}`
+          "Starting location and destination cannot be the same."
         );
       }
-
-      return {
-        latitude: parseFloat(data[0].lat),
-        longitude: parseFloat(data[0].lon),
-      };
-    } catch (error) {
-      console.log("Geocoding error:", error);
-      throw error;
-    }
-  };**/
-  
-const geocodeLocation = async (place) => {
-  try {
-    const cleanPlace = place.trim();
-
-    // -----------------------------------------------------
-    // 1. Check if user entered coordinates directly
-    // Example:
-    // 26.1445, 91.7362
-    // -----------------------------------------------------
-
-    const coordinateMatch = cleanPlace.match(
-      /^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/
-    );
-
-    if (coordinateMatch) {
-      return {
-        latitude: parseFloat(coordinateMatch[1]),
-        longitude: parseFloat(coordinateMatch[2]),
-      };
-    }
-
-    // -----------------------------------------------------
-    // 2. First try the exact place name
-    // -----------------------------------------------------
-
-    const exactUrl =
-      "https://nominatim.openstreetmap.org/search" +
-      `?q=${encodeURIComponent(cleanPlace)}` +
-      "&format=json" +
-      "&limit=5" +
-      "&addressdetails=1";
-
-    console.log("Geocoding:", cleanPlace);
-
-    const exactResponse = await fetch(exactUrl, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "NER-Sentinel-AI",
-      },
-    });
-
-    if (!exactResponse.ok) {
-      throw new Error(
-        `Geocoding service returned ${exactResponse.status}`
-      );
-    }
-
-    const exactData = await exactResponse.json();
-
-    console.log(
-      "Geocoding results:",
-      exactData
-    );
-
-    // -----------------------------------------------------
-    // 3. Look for an Indian result
-    // -----------------------------------------------------
-
-    if (exactData && exactData.length > 0) {
-      const indianResult =
-        exactData.find(
-          (result) =>
-            result.address?.country_code === "in"
-        );
-
-      const result = indianResult || exactData[0];
-
-      return {
-        latitude: parseFloat(result.lat),
-        longitude: parseFloat(result.lon),
-      };
-    }
-
-    // -----------------------------------------------------
-    // 4. If exact search failed, try NER-specific search
-    // -----------------------------------------------------
-
-    const nerUrl =
-      "https://nominatim.openstreetmap.org/search" +
-      `?q=${encodeURIComponent(
-        cleanPlace + ", Northeast India"
-      )}` +
-      "&format=json" +
-      "&limit=5" +
-      "&addressdetails=1";
-
-    const nerResponse = await fetch(nerUrl, {
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "NER-Sentinel-AI",
-      },
-    });
-
-    if (!nerResponse.ok) {
-      throw new Error(
-        `NER geocoding request failed: ${nerResponse.status}`
-      );
-    }
-
-    const nerData = await nerResponse.json();
-
-    if (nerData && nerData.length > 0) {
-      const indianResult =
-        nerData.find(
-          (result) =>
-            result.address?.country_code === "in"
-        );
-
-      const result = indianResult || nerData[0];
-
-      return {
-        latitude: parseFloat(result.lat),
-        longitude: parseFloat(result.lon),
-      };
-    }
-
-    throw new Error(
-      `Could not find location: ${cleanPlace}`
-    );
-  } catch (error) {
-    console.log("Geocoding error:", error);
-    throw error;
-  }
-};
-
-
-
-  // ---------------------------------------------------------
-  // GET REAL ROAD ROUTE FROM OSRM
-  // ---------------------------------------------------------
-
-  const fetchRoute = async (startCoords, destinationCoords) => {
-    try {
-      const coordinates =
-        `${startCoords.longitude},${startCoords.latitude};` +
-        `${destinationCoords.longitude},${destinationCoords.latitude}`;
-
-      const url =
-        `https://router.project-osrm.org/route/v1/driving/${coordinates}` +
-        "?overview=full" +
-        "&geometries=geojson" +
-        "&steps=true";
-
-      console.log("OSRM request:", url);
-
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        throw new Error(
-          `Routing request failed: ${response.status}`
-        );
-      }
-
-      const data = await response.json();
-
-      console.log("OSRM response:", data);
-
-      if (data.code !== "Ok" || !data.routes?.length) {
-        throw new Error(
-          "No road route could be found between these locations."
-        );
-      }
-
-      const route = data.routes[0];
-
-      // OSRM GeoJSON coordinates are:
-      // [longitude, latitude]
-      //
-      // react-native-maps expects:
-      // { latitude, longitude }
-
-      const coordinatesForMap =
-        route.geometry.coordinates.map(
-          ([longitude, latitude]) => ({
-            latitude,
-            longitude,
-          })
-        );
-
-      setRouteCoordinates(coordinatesForMap);
-
-      // OSRM distance is in meters
-      setRouteDistance(route.distance);
-
-      // OSRM duration is in seconds
-      setRouteDuration(route.duration);
-
-      return route;
-    } catch (error) {
-      console.log("Routing error:", error);
-      throw error;
-    }
-  };
-
-  // ---------------------------------------------------------
-  // GENERATE REAL ROUTE
-  //
-  // START CAN BE:
-  // 1. Manually typed
-  // 2. Current GPS location
-  //
-  // GPS IS NOT REQUIRED.
-  // ---------------------------------------------------------
-
-  const generateRoute = async () => {
-    if (!start.trim()) {
-      Alert.alert(
-        "Starting Location Required",
-        "Please enter a starting location or use your current location."
-      );
-      return;
-    }
-
-    if (!destination.trim()) {
-      Alert.alert(
-        "Destination Required",
-        "Please enter a destination."
-      );
-      return;
-    }
-
-    try {
-      setRouteLoading(true);
-
-      console.log("Start:", start);
-      console.log("Destination:", destination);
-
-      // -----------------------------------------------------
-      // START COORDINATES
-      // -----------------------------------------------------
-      //
-      // If currentLocation exists AND the start field still
-      // contains the GPS coordinates, use the actual GPS.
-      //
-      // Otherwise geocode the manually entered start.
-      // -----------------------------------------------------
-
-      let startCoords;
-
-      const coordinateMatch = start
-        .trim()
-        .match(
-          /^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/
-        );
-
-      if (currentLocation && coordinateMatch) {
-        startCoords = currentLocation;
-      } else {
-        startCoords = await geocodeLocation(start);
-      }
-
-      console.log("Start coordinates:", startCoords);
-
-      // -----------------------------------------------------
-      // DESTINATION COORDINATES
-      // -----------------------------------------------------
-
-      const destinationCoords =
-        await geocodeLocation(destination);
 
       console.log(
-        "Destination coordinates:",
-        destinationCoords
+        "🚀 BACKEND ROUTE:",
+        backendStartId,
+        "→",
+        backendDestinationId
       );
 
-      setDestinationLocation(destinationCoords);
+      // ------------------------------------------------
+      // BACKEND INTELLIGENCE
+      // ------------------------------------------------
 
-      // -----------------------------------------------------
-      // GET REAL ROAD ROUTE
-      // -----------------------------------------------------
+      const backendResult =
+        await analyzeRoute(
+          backendStartId,
+          backendDestinationId
+        );
 
-      await fetchRoute(
-        startCoords,
-        destinationCoords
+      setResult(backendResult);
+
+      console.log(
+        "✅ BACKEND ROUTE RESULT:",
+        backendResult
       );
 
-      // -----------------------------------------------------
-      // OPEN MAP
-      // -----------------------------------------------------
+      // ------------------------------------------------
+      // OSRM MAP ROUTE
+      // ------------------------------------------------
 
-      setShowMap(true);
+      const roadCoordinates =
+        await getOSRMRoute(
+          mapStartCoordinate,
+          mapDestinationCoordinate
+        );
+
+      if (roadCoordinates.length > 0) {
+        setRouteCoordinates(
+          roadCoordinates
+        );
+      }
+
+      setStatus(
+        "✅ Route analysis completed."
+      );
     } catch (error) {
-      console.log("Generate route error:", error);
+      console.log(
+        "❌ ROUTE ERROR:",
+        error
+      );
 
-      Alert.alert(
-        "Route Error",
-        error.message ||
-          "Unable to generate the route. Please check the locations and try again."
+      setStatus(
+        `❌ ${
+          error.message ||
+          "Route analysis failed."
+        }`
       );
     } finally {
-      setRouteLoading(false);
+      setLoadingRoute(false);
     }
   };
 
-  // ---------------------------------------------------------
-  // FORMAT DISTANCE
-  // ---------------------------------------------------------
+  // --------------------------------------------------
+  // SELECTED LOCATIONS
+  // --------------------------------------------------
 
-  const formatDistance = (meters) => {
-    if (meters === null || meters === undefined) {
-      return "—";
+  const selectedStart =
+    locations.find(
+      (item) =>
+        String(item.id) ===
+        String(startId)
+    );
+
+  const selectedDestination =
+    locations.find(
+      (item) =>
+        String(item.id) ===
+        String(destinationId)
+    );
+
+  // --------------------------------------------------
+  // MAP CENTER
+  // --------------------------------------------------
+
+  const mapCenter =
+    currentLocation ||
+    (selectedStart
+      ? {
+          latitude: Number(
+            selectedStart.latitude
+          ),
+          longitude: Number(
+            selectedStart.longitude
+          ),
+        }
+      : {
+          latitude: 26.1445,
+          longitude: 91.7362,
+        });
+
+  // --------------------------------------------------
+  // FORMAT ETA
+  // --------------------------------------------------
+
+  const formatETA = (minutes) => {
+    if (!minutes) {
+      return "N/A";
     }
 
-    const kilometers = meters / 1000;
+    const hours = Math.floor(
+      minutes / 60
+    );
 
-    if (kilometers < 1) {
-      return `${Math.round(meters)} m`;
+    const mins = Math.round(
+      minutes % 60
+    );
+
+    if (hours === 0) {
+      return `${mins} min`;
     }
 
-    return `${kilometers.toFixed(1)} km`;
+    return `${hours} hr ${mins} min`;
   };
 
-  // ---------------------------------------------------------
-  // FORMAT TIME
-  // ---------------------------------------------------------
-
-  const formatDuration = (seconds) => {
-    if (seconds === null || seconds === undefined) {
-      return "—";
-    }
-
-    const totalMinutes = Math.round(seconds / 60);
-
-    if (totalMinutes < 60) {
-      return `${totalMinutes} min`;
-    }
-
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-
-    if (minutes === 0) {
-      return `${hours} hr`;
-    }
-
-    return `${hours} hr ${minutes} min`;
-  };
-
-  // ---------------------------------------------------------
-  // TEMPORARY MAP FALLBACK
-  //
-  // This is only used before a real route is generated.
-  // It is NOT used once OSRM returns a route.
-  // ---------------------------------------------------------
-
-  const fallbackStartLocation =
-    currentLocation || {
-      latitude: 26.1445,
-      longitude: 91.7362,
-    };
+  // --------------------------------------------------
+  // RENDER
+  // --------------------------------------------------
 
   return (
-    <View style={styles.container}>
-      {!showMap ? (
-        <ScrollView
-          contentContainerStyle={styles.initialContainer}
-          keyboardShouldPersistTaps="handled"
+    <ScrollView
+      contentContainerStyle={
+        styles.container
+      }
+    >
+      {/* HEADER */}
+
+      <Text style={styles.title}>
+        Find Best Route
+      </Text>
+
+      <Text style={styles.subtitle}>
+        Plan a safer and smarter journey
+        across the North Eastern Region.
+      </Text>
+
+      {/* STATUS */}
+
+      <View style={styles.statusBox}>
+        {(loadingLocations ||
+          loadingRoute) && (
+          <ActivityIndicator
+            size="small"
+            color="#30483B"
+          />
+        )}
+
+        <Text style={styles.status}>
+          {status}
+        </Text>
+      </View>
+
+      {/* START LOCATION */}
+
+      <Text style={styles.label}>
+        Starting Location
+      </Text>
+
+      <View
+        style={
+          styles.pickerContainer
+        }
+      >
+        <Picker
+          selectedValue={startId}
+          onValueChange={(value) => {
+            setStartId(value);
+
+            /*
+             * Manual selection overrides GPS.
+             */
+            if (value) {
+              setCurrentLocation(
+                null
+              );
+            }
+
+            setResult(null);
+            setRouteCoordinates([]);
+          }}
+          style={styles.picker}
         >
-          {/* Back */}
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Text style={styles.backText}>← Back</Text>
-          </TouchableOpacity>
+          <Picker.Item
+            label="Select starting location"
+            value=""
+          />
 
-          {/* Header */}
-          <View style={styles.header}>
-            <Text style={styles.title}>
-              Plan Your Route
-            </Text>
-
-            <Text style={styles.subtitle}>
-              Find a safer and smarter route across the North
-              Eastern Region.
-            </Text>
-          </View>
-
-          {/* Location Card */}
-          <View style={styles.locationCard}>
-            {/* Start */}
-            <View style={styles.inputSection}>
-              <View style={styles.iconContainer}>
-                <Text style={styles.icon}>●</Text>
-              </View>
-
-              <View style={styles.inputWrapper}>
-                <Text style={styles.label}>
-                  START LOCATION
-                </Text>
-
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter starting point"
-                  placeholderTextColor="#77786F"
-                  value={start}
-                  onChangeText={(text) => {
-                    setStart(text);
-
-                    // If user manually edits the field,
-                    // remove the previous GPS selection.
-                    setCurrentLocation(null);
-                  }}
-                />
-
-                {/* Current Location Button */}
-                <TouchableOpacity
-                  style={styles.currentLocationButton}
-                  onPress={getCurrentLocation}
-                  disabled={locationLoading}
-                >
-                  <Text
-                    style={styles.currentLocationText}
-                  >
-                    {locationLoading
-                      ? "Getting location..."
-                      : "📍 Use Current Location"}
-                  </Text>
-                </TouchableOpacity>
-
-                {/* GPS status */}
-                {currentLocation && (
-                  <Text style={styles.gpsStatus}>
-                    ✓ GPS location detected
-                  </Text>
+          {locations.map(
+            (location) => (
+              <Picker.Item
+                key={location.id}
+                label={`${location.name}, ${location.state}`}
+                value={String(
+                  location.id
                 )}
-              </View>
-            </View>
+              />
+            )
+          )}
+        </Picker>
+      </View>
 
-            {/* Connecting Line */}
-            <View style={styles.connector} />
+      {/* GPS */}
 
-            {/* Destination */}
-            <View style={styles.inputSection}>
-              <View
-                style={[
-                  styles.iconContainer,
-                  styles.destinationIcon,
-                ]}
-              >
-                <Text
-                  style={styles.destinationIconText}
-                >
-                  ●
-                </Text>
-              </View>
+      <TouchableOpacity
+        style={styles.gpsButton}
+        onPress={
+          useCurrentLocation
+        }
+        disabled={loadingRoute}
+      >
+        <Text
+          style={
+            styles.gpsButtonText
+          }
+        >
+          📍 Use My Current GPS Location
+        </Text>
+      </TouchableOpacity>
 
-              <View style={styles.inputWrapper}>
-                <Text style={styles.label}>
-                  DESTINATION
-                </Text>
+      {/* DESTINATION */}
 
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter destination"
-                  placeholderTextColor="#77786F"
-                  value={destination}
-                  onChangeText={setDestination}
-                />
-              </View>
-            </View>
-          </View>
+      <Text style={styles.label}>
+        Destination
+      </Text>
 
-          {/* Generate Button */}
-          <TouchableOpacity
-            style={[
-              styles.generateButton,
-              (!start.trim() ||
-                !destination.trim() ||
-                routeLoading) &&
-                styles.generateButtonDisabled,
-            ]}
-            onPress={generateRoute}
-            disabled={
-              !start.trim() ||
-              !destination.trim() ||
-              routeLoading
+      <View
+        style={
+          styles.pickerContainer
+        }
+      >
+        <Picker
+          selectedValue={
+            destinationId
+          }
+          onValueChange={(value) => {
+            setDestinationId(value);
+
+            setResult(null);
+            setRouteCoordinates([]);
+          }}
+          style={styles.picker}
+        >
+          <Picker.Item
+            label="Select destination"
+            value=""
+          />
+
+          {locations.map(
+            (location) => (
+              <Picker.Item
+                key={location.id}
+                label={`${location.name}, ${location.state}`}
+                value={String(
+                  location.id
+                )}
+              />
+            )
+          )}
+        </Picker>
+      </View>
+
+      {/* FIND ROUTE BUTTON */}
+
+      <TouchableOpacity
+        style={[
+          styles.routeButton,
+          loadingRoute &&
+            styles.routeButtonDisabled,
+        ]}
+        onPress={
+          handleFindRoute
+        }
+        disabled={loadingRoute}
+      >
+        <Text
+          style={
+            styles.routeButtonText
+          }
+        >
+          {loadingRoute
+            ? "Analyzing Route..."
+            : "Find Best Route"}
+        </Text>
+      </TouchableOpacity>
+
+      {/* MAP */}
+
+      <View style={styles.mapContainer}>
+        <MapView
+          style={styles.map}
+          initialRegion={{
+            latitude:
+              mapCenter.latitude,
+            longitude:
+              mapCenter.longitude,
+            latitudeDelta: 4,
+            longitudeDelta: 4,
+          }}
+        >
+          {/* GPS MARKER */}
+
+          {currentLocation && (
+            <Marker
+              coordinate={
+                currentLocation
+              }
+              title="Your Current Location"
+              description="GPS location"
+            />
+          )}
+
+          {/* START MARKER */}
+
+          {!currentLocation &&
+            selectedStart && (
+              <Marker
+                coordinate={{
+                  latitude: Number(
+                    selectedStart.latitude
+                  ),
+                  longitude: Number(
+                    selectedStart.longitude
+                  ),
+                }}
+                title={
+                  selectedStart.name
+                }
+                description="Starting location"
+              />
+            )}
+
+          {/* DESTINATION MARKER */}
+
+          {selectedDestination && (
+            <Marker
+              coordinate={{
+                latitude: Number(
+                  selectedDestination.latitude
+                ),
+                longitude: Number(
+                  selectedDestination.longitude
+                ),
+              }}
+              title={
+                selectedDestination.name
+              }
+              description="Destination"
+            />
+          )}
+
+          {/* ROAD ROUTE */}
+
+          {routeCoordinates.length >
+            0 && (
+            <Polyline
+              coordinates={
+                routeCoordinates
+              }
+              strokeWidth={5}
+              strokeColor="#A9573F"
+            />
+          )}
+        </MapView>
+      </View>
+
+      {/* ROUTE RESULTS */}
+
+      {result && (
+        <View
+          style={
+            styles.resultsContainer
+          }
+        >
+          <Text
+            style={
+              styles.resultsTitle
             }
           >
-            <Text style={styles.generateText}>
-              {routeLoading
-                ? "Finding Route..."
-                : "Generate Route"}
-            </Text>
+            Route Intelligence
+          </Text>
 
-            {!routeLoading && (
-              <Text style={styles.arrow}>→</Text>
-            )}
-          </TouchableOpacity>
+          {/* RECOMMENDATION */}
 
-          {/* Info */}
-          <View style={styles.infoCard}>
-            <Text style={styles.infoTitle}>
-              SMART ROUTING
-            </Text>
-
-            <Text style={styles.infoText}>
-              Our system will analyze road conditions,
-              disruptions, terrain, and accessibility to help
-              identify the best route.
-            </Text>
-          </View>
-        </ScrollView>
-      ) : (
-        <View style={styles.mapScreen}>
-          {/* Map */}
-          <MapView
-            style={styles.map}
-            initialRegion={{
-              latitude:
-                routeCoordinates.length > 0
-                  ? routeCoordinates[0].latitude
-                  : fallbackStartLocation.latitude,
-
-              longitude:
-                routeCoordinates.length > 0
-                  ? routeCoordinates[0].longitude
-                  : fallbackStartLocation.longitude,
-
-              latitudeDelta: 5.5,
-              longitudeDelta: 5.5,
-            }}
-            showsUserLocation={true}
-            showsMyLocationButton={true}
+          <View
+            style={
+              styles.recommendationCard
+            }
           >
-            {/* Current GPS Location */}
-            {currentLocation && (
-              <Marker
-                coordinate={currentLocation}
-                title="Your Current Location"
-                description="GPS location"
-              >
-                <View
-                  style={styles.currentLocationMarker}
-                >
-                  <Text style={styles.markerText}>
-                    📍
-                  </Text>
-                </View>
-              </Marker>
-            )}
-
-            {/* Manual Start Marker */}
-            {!currentLocation &&
-              routeCoordinates.length > 0 && (
-                <Marker
-                  coordinate={routeCoordinates[0]}
-                  title={start}
-                  description="Starting location"
-                />
-              )}
-
-            {/* Destination Marker */}
-            {destinationLocation && (
-              <Marker
-                coordinate={destinationLocation}
-                title={destination}
-                description="Destination"
-              />
-            )}
-
-            {/* REAL OSRM ROAD ROUTE */}
-            {routeCoordinates.length > 0 && (
-              <Polyline
-                coordinates={routeCoordinates}
-                strokeColor="#A9573F"
-                strokeWidth={5}
-              />
-            )}
-          </MapView>
-
-          {/* Top Overlay */}
-          <View style={styles.mapTopCard}>
-            <TouchableOpacity
-              style={styles.mapBackButton}
-              onPress={() => setShowMap(false)}
+            <Text
+              style={
+                styles.recommendationTitle
+              }
             >
-              <Text style={styles.mapBackText}>
-                ←
-              </Text>
-            </TouchableOpacity>
+              AI Recommendation
+            </Text>
 
-            <View style={styles.routeSummary}>
-              <Text
-                style={styles.routeSummaryTitle}
-              >
-                Route Generated
-              </Text>
-
-              <Text style={styles.routeSummaryText}>
-                {start} → {destination}
-              </Text>
-            </View>
+            <Text
+              style={
+                styles.recommendation
+              }
+            >
+              {result.recommendation ||
+                "No recommendation available."}
+            </Text>
           </View>
 
-          {/* Bottom Route Information */}
-          <View style={styles.bottomCard}>
-            <View style={styles.routeHeader}>
-              <View>
-                <Text
-                  style={styles.bestRouteLabel}
-                >
-                  RECOMMENDED ROUTE
-                </Text>
+          {/* FASTEST */}
 
-                <Text
-                  style={styles.bestRouteTitle}
-                >
-                  Safest Route
-                </Text>
-              </View>
-
-              <View style={styles.safeBadge}>
-                <Text style={styles.safeBadgeText}>
-                  SAFE
-                </Text>
-              </View>
-            </View>
-
-            <View style={styles.statsRow}>
-              <View style={styles.stat}>
-                <Text style={styles.statValue}>
-                  {formatDistance(routeDistance)}
-                </Text>
-
-                <Text style={styles.statLabel}>
-                  DISTANCE
-                </Text>
-              </View>
-
-              <View style={styles.stat}>
-                <Text style={styles.statValue}>
-                  {formatDuration(routeDuration)}
-                </Text>
-
-                <Text style={styles.statLabel}>
-                  EST. TIME
-                </Text>
-              </View>
-
-              <View style={styles.stat}>
-                <Text style={styles.statValue}>
-                  Low
-                </Text>
-
-                <Text style={styles.statLabel}>
-                  RISK
-                </Text>
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={styles.changeRouteButton}
-              onPress={() => {
-                setShowMap(false);
-              }}
+          {result.fastestRoute && (
+            <View
+              style={
+                styles.routeCard
+              }
             >
               <Text
-                style={styles.changeRouteText}
+                style={
+                  styles.cardTitle
+                }
               >
-                Change Locations
+                ⚡ Fastest Route
               </Text>
-            </TouchableOpacity>
-          </View>
+
+              <Text
+                style={styles.metric}
+              >
+                Distance:{" "}
+                {
+                  result
+                    .fastestRoute
+                    .totalDistanceKm
+                }{" "}
+                km
+              </Text>
+
+              <Text
+                style={styles.metric}
+              >
+                ETA:{" "}
+                {formatETA(
+                  result
+                    .fastestRoute
+                    .totalTransitTimeMin
+                )}
+              </Text>
+
+              <Text
+                style={styles.metric}
+              >
+                Risk Score:{" "}
+                {
+                  result
+                    .fastestRoute
+                    .averageRiskScore
+                }
+              </Text>
+
+              <Text
+                style={styles.metric}
+              >
+                Severity:{" "}
+                {
+                  result
+                    .fastestRoute
+                    .severityBand
+                }
+              </Text>
+
+              <Text
+                style={styles.metric}
+              >
+                Route Nodes:{" "}
+                {
+                  result
+                    .fastestRoute
+                    .nodesCount
+                }
+              </Text>
+
+              <Text
+                style={styles.metric}
+              >
+                Hazards:{" "}
+                {result.fastestRoute
+                  .hazardsEncountered
+                  ?.length || 0}
+              </Text>
+            </View>
+          )}
+
+          {/* SAFEST */}
+
+          {result.safestRoute && (
+            <View
+              style={
+                styles.routeCard
+              }
+            >
+              <Text
+                style={
+                  styles.cardTitle
+                }
+              >
+                🛡 Safest Route
+              </Text>
+
+              <Text
+                style={styles.metric}
+              >
+                Distance:{" "}
+                {
+                  result
+                    .safestRoute
+                    .totalDistanceKm
+                }{" "}
+                km
+              </Text>
+
+              <Text
+                style={styles.metric}
+              >
+                ETA:{" "}
+                {formatETA(
+                  result
+                    .safestRoute
+                    .totalTransitTimeMin
+                )}
+              </Text>
+
+              <Text
+                style={styles.metric}
+              >
+                Risk Score:{" "}
+                {
+                  result
+                    .safestRoute
+                    .averageRiskScore
+                }
+              </Text>
+
+              <Text
+                style={styles.metric}
+              >
+                Severity:{" "}
+                {
+                  result
+                    .safestRoute
+                    .severityBand
+                }
+              </Text>
+
+              <Text
+                style={styles.metric}
+              >
+                Route Nodes:{" "}
+                {
+                  result
+                    .safestRoute
+                    .nodesCount
+                }
+              </Text>
+
+              <Text
+                style={styles.metric}
+              >
+                Hazards:{" "}
+                {result.safestRoute
+                  .hazardsEncountered
+                  ?.length || 0}
+              </Text>
+            </View>
+          )}
+
+          {/* AI ENGINE STATUS */}
+
+          {result.aiEngineStatus && (
+            <Text
+              style={
+                styles.aiStatus
+              }
+            >
+              AI Engine:{" "}
+              {
+                result.aiEngineStatus
+              }
+            </Text>
+          )}
         </View>
       )}
-    </View>
+    </ScrollView>
   );
 }
 
-
-
-
+// ==================================================
+// STYLES
+// ==================================================
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    flexGrow: 1,
+    padding: 20,
     backgroundColor: "#EDE8DC",
   },
 
-  initialContainer: {
-    padding: 24,
-    paddingBottom: 40,
-  },
-
-  backButton: {
-    marginTop: 10,
-    marginBottom: 25,
-  },
-
-  backText: {
-    fontSize: 16,
-    color: "#30483B",
-    fontWeight: "600",
-  },
-
-  header: {
-    marginBottom: 25,
-  },
-
   title: {
-    fontSize: 30,
-    fontWeight: "700",
+    fontSize: 28,
+    fontWeight: "bold",
     color: "#20231F",
-    marginBottom: 8,
+    textAlign: "center",
+    marginTop: 20,
   },
 
   subtitle: {
     fontSize: 15,
-    color: "#77786F",
-    lineHeight: 22,
-  },
-
-  locationCard: {
-    backgroundColor: "#F7F4EC",
-    borderRadius: 18,
-    padding: 20,
+    color: "#30483B",
+    textAlign: "center",
+    marginTop: 7,
     marginBottom: 20,
+    lineHeight: 21,
   },
 
-  inputSection: {
+  statusBox: {
+    minHeight: 30,
     flexDirection: "row",
-    alignItems: "flex-start",
-  },
-
-  iconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "#30483B",
-    justifyContent: "center",
     alignItems: "center",
-    marginRight: 14,
-    marginTop: 4,
+    justifyContent: "center",
+    marginBottom: 12,
+    gap: 8,
   },
 
-  icon: {
-    color: "#EDE8DC",
-    fontSize: 13,
-  },
-
-  destinationIcon: {
-    backgroundColor: "#A9573F",
-  },
-
-  destinationIconText: {
-    color: "#EDE8DC",
-    fontSize: 13,
-  },
-
-  inputWrapper: {
-    flex: 1,
+  status: {
+    fontSize: 14,
+    color: "#30483B",
+    textAlign: "center",
   },
 
   label: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#77786F",
-    marginBottom: 6,
-    letterSpacing: 1,
-  },
-
-  input: {
-    backgroundColor: "#EDE8DC",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: "#20231F",
-  },
-
-  currentLocationButton: {
-    marginTop: 10,
-    alignSelf: "flex-start",
-    backgroundColor: "#CBD0C0",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-
-  currentLocationText: {
-    color: "#30483B",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-
-  gpsStatus: {
-    color: "#30483B",
-    fontSize: 12,
-    marginTop: 7,
-    fontWeight: "600",
-  },
-
-  connector: {
-    width: 2,
-    height: 25,
-    backgroundColor: "#CBD0C0",
-    marginLeft: 15,
-    marginVertical: 4,
-  },
-
-  generateButton: {
-    backgroundColor: "#30483B",
-    borderRadius: 14,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 20,
-  },
-
-  generateButtonDisabled: {
-    opacity: 0.5,
-  },
-
-  generateText: {
-    color: "#EDE8DC",
     fontSize: 16,
-    fontWeight: "700",
-  },
-
-  arrow: {
-    color: "#EDE8DC",
-    fontSize: 20,
-    marginLeft: 10,
-  },
-
-  infoCard: {
-    backgroundColor: "#CBD0C0",
-    borderRadius: 16,
-    padding: 18,
-  },
-
-  infoTitle: {
-    color: "#30483B",
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1,
+    fontWeight: "bold",
+    color: "#20231F",
+    marginTop: 10,
     marginBottom: 8,
   },
 
-  infoText: {
-    color: "#30483B",
-    fontSize: 13,
-    lineHeight: 20,
+  pickerContainer: {
+    backgroundColor: "#CBD0C0",
+    borderRadius: 12,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#30483B",
   },
 
-  mapScreen: {
-    flex: 1,
+  picker: {
+    color: "#20231F",
+  },
+
+  gpsButton: {
+    backgroundColor: "#B8944A",
+    paddingVertical: 13,
+    borderRadius: 12,
+    marginTop: 12,
+    marginBottom: 12,
+    alignItems: "center",
+  },
+
+  gpsButtonText: {
+    color: "#20231F",
+    fontSize: 15,
+    fontWeight: "bold",
+  },
+
+  routeButton: {
+    backgroundColor: "#A9573F",
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginTop: 20,
+    alignItems: "center",
+  },
+
+  routeButtonDisabled: {
+    opacity: 0.65,
+  },
+
+  routeButtonText: {
+    color: "#EDE8DC",
+    fontSize: 17,
+    fontWeight: "bold",
+  },
+
+  mapContainer: {
+    height: 350,
+    marginTop: 25,
+    borderRadius: 15,
+    overflow: "hidden",
   },
 
   map: {
     flex: 1,
   },
 
-  currentLocationMarker: {
-    alignItems: "center",
-    justifyContent: "center",
+  resultsContainer: {
+    marginTop: 25,
+    paddingBottom: 30,
   },
 
-  markerText: {
-    fontSize: 30,
+  resultsTitle: {
+    fontSize: 23,
+    fontWeight: "bold",
+    color: "#20231F",
+    marginBottom: 15,
   },
 
-  mapTopCard: {
-    position: "absolute",
-    top: 50,
-    left: 16,
-    right: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F7F4EC",
-    borderRadius: 16,
-    padding: 12,
-    elevation: 5,
-  },
-
-  mapBackButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  recommendationCard: {
     backgroundColor: "#30483B",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
+    padding: 18,
+    borderRadius: 15,
+    marginBottom: 15,
   },
 
-  mapBackText: {
+  recommendationTitle: {
+    fontSize: 19,
+    fontWeight: "bold",
     color: "#EDE8DC",
-    fontSize: 22,
+    marginBottom: 10,
   },
 
-  routeSummary: {
-    flex: 1,
-  },
-
-  routeSummaryTitle: {
+  recommendation: {
+    color: "#EDE8DC",
     fontSize: 15,
-    fontWeight: "700",
-    color: "#20231F",
+    lineHeight: 22,
   },
 
-  routeSummaryText: {
-    fontSize: 12,
-    color: "#77786F",
-    marginTop: 3,
-  },
-
-  bottomCard: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "#F7F4EC",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    elevation: 10,
-  },
-
-  routeHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-
-  bestRouteLabel: {
-    fontSize: 10,
-    fontWeight: "800",
-    color: "#77786F",
-    letterSpacing: 1,
-  },
-
-  bestRouteTitle: {
-    fontSize: 21,
-    fontWeight: "700",
-    color: "#20231F",
-    marginTop: 4,
-  },
-
-  safeBadge: {
+  routeCard: {
     backgroundColor: "#CBD0C0",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    padding: 18,
+    borderRadius: 15,
+    marginBottom: 15,
   },
 
-  safeBadgeText: {
-    color: "#30483B",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-
-  statsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 20,
-    marginBottom: 18,
-  },
-
-  stat: {
-    alignItems: "center",
-    flex: 1,
-  },
-
-  statValue: {
-    fontSize: 18,
-    fontWeight: "700",
+  cardTitle: {
+    fontSize: 19,
+    fontWeight: "bold",
     color: "#20231F",
+    marginBottom: 12,
   },
 
-  statLabel: {
-    fontSize: 9,
-    color: "#77786F",
-    marginTop: 4,
-    letterSpacing: 0.8,
+  metric: {
+    color: "#20231F",
+    fontSize: 15,
+    marginBottom: 7,
   },
 
-  changeRouteButton: {
-    borderWidth: 1,
-    borderColor: "#30483B",
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: "center",
-  },
-
-  changeRouteText: {
+  aiStatus: {
+    textAlign: "center",
     color: "#30483B",
-    fontSize: 14,
-    fontWeight: "700",
+    fontSize: 13,
+    marginTop: 5,
   },
 });
-
