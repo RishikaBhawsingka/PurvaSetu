@@ -19,24 +19,30 @@ export default function Login({ navigation }) {
 
   const handleLogin = () => {
     if (!email || !password) {
-      Alert.alert("Missing Information", "Please enter your email and password.");
+      Alert.alert(
+        "Missing Information",
+        "Please enter your email and password."
+      );
       return;
     }
 
-    // Backend login will be connected later
-    Alert.alert("Success", "Login successful!");
-
-    navigation.navigate("Home");
+    Alert.alert("Success", "Login successful!", [
+      {
+        text: "OK",
+        onPress: () => navigation.replace("Dashboard"),
+      },
+    ]);
   };
 
   return (
     <KeyboardAvoidingView
       style={styles.screen}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <ScrollView
         contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
+        keyboardDismissMode="none"
         showsVerticalScrollIndicator={false}
       >
         {/* BRAND */}
@@ -45,61 +51,85 @@ export default function Login({ navigation }) {
           <View style={styles.logoLine} />
         </View>
 
+        {/* LOGIN CARD */}
         <View style={styles.card}>
+
           {/* HEADER */}
           <Text style={styles.title}>Welcome Back</Text>
+
           <Text style={styles.subtitle}>
             Access your logistics intelligence dashboard
           </Text>
 
           {/* EMAIL */}
           <Text style={styles.label}>Email Address</Text>
+
           <TextInput
-            style={[styles.input, focusedField === "email" && styles.inputFocused]}
+            style={[
+              styles.input,
+              focusedField === "email" && styles.inputFocused,
+            ]}
             placeholder="Enter your email"
             placeholderTextColor="#8B8F86"
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
+            editable={true}
             value={email}
             onChangeText={setEmail}
             onFocus={() => setFocusedField("email")}
             onBlur={() => setFocusedField(null)}
+            returnKeyType="next"
           />
 
           {/* PASSWORD */}
           <Text style={styles.label}>Password</Text>
-          <View
-            style={[
-              styles.passwordWrapper,
-              focusedField === "password" && styles.inputFocused,
-            ]}
-          >
+
+          <View style={styles.passwordContainer}>
+
             <TextInput
-              style={styles.passwordInput}
+              style={[
+                styles.passwordInput,
+                focusedField === "password" && styles.passwordInputFocused,
+              ]}
               placeholder="Enter your password"
               placeholderTextColor="#8B8F86"
               secureTextEntry={!showPassword}
+              keyboardType="default"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={true}
               value={password}
               onChangeText={setPassword}
               onFocus={() => setFocusedField("password")}
               onBlur={() => setFocusedField(null)}
+              returnKeyType="done"
+              underlineColorAndroid="transparent"
             />
 
+            {/* SHOW / HIDE */}
             <TouchableOpacity
               style={styles.showButton}
-              onPress={() => setShowPassword(!showPassword)}
+              onPress={() => {
+                setShowPassword((previous) => !previous);
+              }}
               activeOpacity={0.7}
             >
               <Text style={styles.showText}>
                 {showPassword ? "HIDE" : "SHOW"}
               </Text>
             </TouchableOpacity>
+
           </View>
 
           {/* FORGOT PASSWORD */}
-          <TouchableOpacity style={styles.forgotButton} activeOpacity={0.7}>
-            <Text style={styles.forgotText}>Forgot Password?</Text>
+          <TouchableOpacity
+            style={styles.forgotButton}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.forgotText}>
+              Forgot Password?
+            </Text>
           </TouchableOpacity>
 
           {/* LOGIN */}
@@ -108,39 +138,43 @@ export default function Login({ navigation }) {
             onPress={handleLogin}
             activeOpacity={0.88}
           >
-            <Text style={styles.loginButtonText}>LOGIN</Text>
-            <Text style={styles.arrow}>→</Text>
+            <Text style={styles.loginButtonText}>
+              LOGIN
+            </Text>
+
+            <Text style={styles.arrow}>
+              →
+            </Text>
           </TouchableOpacity>
 
           {/* SIGN UP */}
           <View style={styles.signupDivider} />
+
           <View style={styles.signupRow}>
-            <Text style={styles.signupText}>Don't have an account?</Text>
+            <Text style={styles.signupText}>
+              Don't have an account?
+            </Text>
+
             <TouchableOpacity
               onPress={() => navigation.navigate("Signup")}
               activeOpacity={0.7}
             >
-              <Text style={styles.signupLink}> Sign Up</Text>
+              <Text style={styles.signupLink}>
+                {" "}Sign Up
+              </Text>
             </TouchableOpacity>
           </View>
+
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
-/*
-  DESIGN TOKENS — matched 1:1 to Signup.jsx so the two screens read as one
-  continuous design system rather than siblings with a family resemblance.
-  screen bg     #EDE8DC
-  card bg       #F6F1E7    border #DDE0D5
-  input bg      #F2EEE4    border #C2B47C  → focus #30483B
-  accent green  #30483B    accent rust #A9573F
-  text primary  #20231F    text body #33372F    text muted #5E675D
-  show/hide pill#DCE1D5
-*/
-
 const styles = StyleSheet.create({
+
+  /* SCREEN */
+
   screen: {
     flex: 1,
     backgroundColor: "#EDE8DC",
@@ -181,15 +215,21 @@ const styles = StyleSheet.create({
     width: "100%",
     backgroundColor: "#F6F1E7",
     borderRadius: 26,
+
     borderWidth: 1,
     borderColor: "#DDE0D5",
+
     paddingHorizontal: 22,
     paddingVertical: 30,
 
     shadowColor: "#30483B",
-    shadowOffset: { width: 0, height: 6 },
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
     shadowOpacity: 0.08,
     shadowRadius: 16,
+
     elevation: 3,
   },
 
@@ -207,75 +247,132 @@ const styles = StyleSheet.create({
     color: "#5E675D",
     fontSize: 14,
     textAlign: "center",
+
     marginTop: 6,
     marginBottom: 28,
   },
 
-  /* LABELS */
+  /* LABEL */
 
   label: {
     color: "#33372F",
     fontSize: 13,
     fontWeight: "700",
+
     marginBottom: 8,
     marginTop: 16,
   },
 
-  /* INPUTS */
+  /* EMAIL */
 
   input: {
+    width: "100%",
     height: 52,
+
     backgroundColor: "#F2EEE4",
+
     borderRadius: 14,
-    paddingHorizontal: 16,
-    fontSize: 15,
-    color: "#20231F",
+
     borderWidth: 1,
     borderColor: "#C2B47C",
+
+    paddingHorizontal: 16,
+
+    fontSize: 15,
+    color: "#20231F",
   },
 
   inputFocused: {
     borderColor: "#30483B",
     borderWidth: 1.5,
+
     shadowColor: "#30483B",
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+
     shadowOpacity: 0.12,
     shadowRadius: 6,
+
     elevation: 2,
   },
 
   /* PASSWORD */
 
-  passwordWrapper: {
+  passwordContainer: {
+    width: "100%",
     height: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F2EEE4",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#C2B47C",
-    paddingRight: 6,
+
+    position: "relative",
   },
 
   passwordInput: {
-    flex: 1,
-    height: "100%",
-    paddingHorizontal: 16,
+    width: "100%",
+    height: 52,
+
+    backgroundColor: "#F2EEE4",
+
+    borderRadius: 14,
+
+    borderWidth: 1,
+    borderColor: "#C2B47C",
+
+    paddingLeft: 16,
+    paddingRight: 90,
+
     fontSize: 15,
     color: "#20231F",
+
+    includeFontPadding: false,
   },
 
+  passwordInputFocused: {
+    borderColor: "#30483B",
+    borderWidth: 1.5,
+
+    shadowColor: "#30483B",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+
+    elevation: 2,
+  },
+
+  /* SHOW BUTTON */
+
   showButton: {
+    position: "absolute",
+
+    right: 7,
+    top: 7,
+
+    height: 38,
+
     paddingHorizontal: 12,
-    paddingVertical: 7,
+
+    justifyContent: "center",
+    alignItems: "center",
+
     borderRadius: 9,
+
     backgroundColor: "#DCE1D5",
+
+    zIndex: 10,
+
+    elevation: 2,
   },
 
   showText: {
     color: "#30483B",
+
     fontSize: 10.5,
     fontWeight: "700",
+
     letterSpacing: 0.6,
   },
 
@@ -283,13 +380,16 @@ const styles = StyleSheet.create({
 
   forgotButton: {
     alignSelf: "flex-end",
+
     marginTop: 12,
+
     paddingVertical: 6,
     paddingHorizontal: 2,
   },
 
   forgotText: {
     color: "#A9573F",
+
     fontSize: 13,
     fontWeight: "700",
   },
@@ -297,32 +397,47 @@ const styles = StyleSheet.create({
   /* LOGIN BUTTON */
 
   loginButton: {
+    width: "100%",
     height: 54,
+
     backgroundColor: "#A9573F",
+
     borderRadius: 15,
+
     marginTop: 26,
+
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
 
     shadowColor: "#A9573F",
-    shadowOffset: { width: 0, height: 6 },
+
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+
     shadowOpacity: 0.22,
     shadowRadius: 10,
+
     elevation: 4,
   },
 
   loginButtonText: {
     color: "#F6F1E7",
+
     fontSize: 14,
     fontWeight: "700",
+
     letterSpacing: 0.8,
   },
 
   arrow: {
     color: "#F6F1E7",
+
     fontSize: 18,
     fontWeight: "600",
+
     marginLeft: 8,
   },
 
@@ -330,14 +445,18 @@ const styles = StyleSheet.create({
 
   signupDivider: {
     height: 1,
+
     backgroundColor: "#DDE0D5",
+
     marginTop: 22,
   },
 
   signupRow: {
     flexDirection: "row",
+
     justifyContent: "center",
     alignItems: "center",
+
     marginTop: 16,
   },
 
@@ -348,6 +467,7 @@ const styles = StyleSheet.create({
 
   signupLink: {
     color: "#30483B",
+
     fontWeight: "800",
     fontSize: 13,
   },
