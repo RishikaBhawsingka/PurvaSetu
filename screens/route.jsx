@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -13,13 +13,8 @@ import * as Location from "expo-location";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { Picker } from "@react-native-picker/picker";
 
-import {
-  analyzeOfflineRoute,
-} from "../services/offlineRoutingService";
-
-import {
-  analyzeRoute,
-} from "../services/api";
+import { analyzeOfflineRoute } from "../services/offlineRoutingService";
+import { analyzeRoute } from "../services/api";
 
 import {
   initDatabase,
@@ -28,11 +23,7 @@ import {
   getLocalRoadSegments,
   getLocalDisruptions,
   getLocalWeatherData,
-   resetDatabase,
 } from "../services/database";
-
-const OSRM_URL =
-  "https://router.project-osrm.org/route/v1/driving";
 
 export default function Route({ navigation }) {
   // ==================================================
@@ -44,33 +35,28 @@ export default function Route({ navigation }) {
   const [startId, setStartId] = useState("");
   const [destinationId, setDestinationId] = useState("");
 
-  const [currentLocation, setCurrentLocation] =
-    useState(null);
+  const [currentLocation, setCurrentLocation] = useState(null);
 
-  const [routeCoordinates, setRouteCoordinates] =
-    useState([]);
+  // Separate coordinates for fastest and safest routes
+  const [fastestRouteCoordinates, setFastestRouteCoordinates] = useState([]);
+  const [safestRouteCoordinates, setSafestRouteCoordinates] = useState([]);
 
   const [result, setResult] = useState(null);
 
-  const [loadingLocations, setLoadingLocations] =
-    useState(true);
+  const [loadingLocations, setLoadingLocations] = useState(true);
+  const [loadingRoute, setLoadingRoute] = useState(false);
 
-  const [loadingRoute, setLoadingRoute] =
-    useState(false);
-
-  const [gpsTracking, setGpsTracking] =
-    useState(false);
+  const [gpsTracking, setGpsTracking] = useState(false);
 
   const [status, setStatus] = useState(
     "Loading NER locations..."
   );
 
-  // ==================================================
-  // GPS SUBSCRIPTION
-  // ==================================================
-
   const [locationSubscription, setLocationSubscription] =
     useState(null);
+
+  // Map reference
+  const mapRef = useRef(null);
 
   // ==================================================
   // LOAD OFFLINE ROUTING DATA
@@ -81,63 +67,30 @@ export default function Route({ navigation }) {
 
     const loadLocations = async () => {
       try {
-        setStatus(
-          "📱 Checking offline routing data..."
-        );
+        setStatus("📱 Checking offline routing data...");
 
         // ----------------------------------------------
         // INITIALIZE SQLITE
         // ----------------------------------------------
 
         await initDatabase();
-        
+
         // ----------------------------------------------
         // READ LOCAL DATA
         // ----------------------------------------------
 
-        const localLocations =
-          await getLocalLocations();
+        const localLocations = await getLocalLocations();
+        const localSegments = await getLocalRoadSegments();
+        const localDisruptions = await getLocalDisruptions();
+        const localWeather = await getLocalWeatherData();
 
-        const localSegments =
-          await getLocalRoadSegments();
-
-        const localDisruptions =
-          await getLocalDisruptions();
-
-        const localWeather =
-          await getLocalWeatherData();
-
-        console.log(
-          "================================"
-        );
-
-        console.log(
-          "📱 OFFLINE DATA CHECK"
-        );
-
-        console.log(
-          "📍 Locations:",
-          localLocations.length
-        );
-
-        console.log(
-          "🛣️ Road Segments:",
-          localSegments.length
-        );
-
-        console.log(
-          "⚠️ Disruptions:",
-          localDisruptions.length
-        );
-
-        console.log(
-          "🌦️ Weather:",
-          localWeather.length
-        );
-
-        console.log(
-          "================================"
-        );
+        console.log("================================");
+        console.log("📱 OFFLINE DATA CHECK");
+        console.log("📍 Locations:", localLocations.length);
+        console.log("🛣️ Road Segments:", localSegments.length);
+        console.log("⚠️ Disruptions:", localDisruptions.length);
+        console.log("🌦️ Weather:", localWeather.length);
+        console.log("================================");
 
         // ----------------------------------------------
         // OFFLINE DATA ALREADY AVAILABLE
@@ -185,37 +138,22 @@ export default function Route({ navigation }) {
           );
         }
 
-        console.log(
-          "================================"
-        );
-
-        console.log(
-          "✅ OFFLINE DATA SYNC COMPLETE"
-        );
-
-        console.log(
-          "📍 Locations:",
-          syncResult.locations
-        );
-
+        console.log("================================");
+        console.log("✅ OFFLINE DATA SYNC COMPLETE");
+        console.log("📍 Locations:", syncResult.locations);
         console.log(
           "🛣️ Road Segments:",
           syncResult.roadSegments
         );
-
         console.log(
           "⚠️ Disruptions:",
           syncResult.disruptions
         );
-
         console.log(
           "🌦️ Weather:",
           syncResult.weather
         );
-
-        console.log(
-          "================================"
-        );
+        console.log("================================");
 
         // ----------------------------------------------
         // READ LOCATIONS AGAIN
@@ -230,9 +168,7 @@ export default function Route({ navigation }) {
 
         if (!mounted) return;
 
-        setLocations(
-          updatedLocations
-        );
+        setLocations(updatedLocations);
 
         setStatus(
           "✅ Offline routing data downloaded."
@@ -244,7 +180,7 @@ export default function Route({ navigation }) {
         );
 
         // ----------------------------------------------
-        // IF LOCAL LOCATIONS EXIST, STILL SHOW THEM
+        // LOCAL FALLBACK
         // ----------------------------------------------
 
         try {
@@ -259,9 +195,7 @@ export default function Route({ navigation }) {
               `📦 Falling back to ${fallbackLocations.length} locally stored locations`
             );
 
-            setLocations(
-              fallbackLocations
-            );
+            setLocations(fallbackLocations);
 
             setStatus(
               "⚠️ Using locally stored locations. Offline route data may be incomplete."
@@ -288,8 +222,7 @@ export default function Route({ navigation }) {
       }
     };
 
-    // IMPORTANT:
-    // Actually start loading the data.
+    // Start loading
     loadLocations();
 
     return () => {
@@ -315,22 +248,15 @@ export default function Route({ navigation }) {
 
   const startGPSTracking = async () => {
     try {
-      setStatus(
-        "Requesting GPS permission..."
-      );
+      setStatus("Requesting GPS permission...");
 
       const {
         status: permissionStatus,
       } =
         await Location.requestForegroundPermissionsAsync();
 
-      if (
-        permissionStatus !==
-        "granted"
-      ) {
-        setStatus(
-          "❌ Location permission denied."
-        );
+      if (permissionStatus !== "granted") {
+        setStatus("❌ Location permission denied.");
 
         Alert.alert(
           "Location Permission",
@@ -346,27 +272,23 @@ export default function Route({ navigation }) {
 
       const initialLocation =
         await Location.getCurrentPositionAsync({
-          accuracy:
-            Location.Accuracy.Balanced,
+          accuracy: Location.Accuracy.Balanced,
         });
 
       const initialCoords = {
-        latitude:
-          initialLocation.coords.latitude,
-        longitude:
-          initialLocation.coords.longitude,
+        latitude: initialLocation.coords.latitude,
+        longitude: initialLocation.coords.longitude,
       };
 
-      setCurrentLocation(
-        initialCoords
-      );
+      setCurrentLocation(initialCoords);
 
       // Manual start is cleared
       setStartId("");
 
       // Clear old route results
       setResult(null);
-      setRouteCoordinates([]);
+      setFastestRouteCoordinates([]);
+      setSafestRouteCoordinates([]);
 
       // ----------------------------------------------
       // REMOVE OLD WATCHER
@@ -383,20 +305,14 @@ export default function Route({ navigation }) {
       const subscription =
         await Location.watchPositionAsync(
           {
-            accuracy:
-              Location.Accuracy.Balanced,
-
+            accuracy: Location.Accuracy.Balanced,
             timeInterval: 5000,
-
             distanceInterval: 10,
           },
-
           (location) => {
             const coords = {
-              latitude:
-                location.coords.latitude,
-              longitude:
-                location.coords.longitude,
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
             };
 
             console.log(
@@ -404,9 +320,7 @@ export default function Route({ navigation }) {
               coords
             );
 
-            setCurrentLocation(
-              coords
-            );
+            setCurrentLocation(coords);
 
             setStatus(
               "📍 GPS tracking active"
@@ -414,9 +328,7 @@ export default function Route({ navigation }) {
           }
         );
 
-      setLocationSubscription(
-        subscription
-      );
+      setLocationSubscription(subscription);
 
       setGpsTracking(true);
 
@@ -447,9 +359,7 @@ export default function Route({ navigation }) {
     if (locationSubscription) {
       locationSubscription.remove();
 
-      setLocationSubscription(
-        null
-      );
+      setLocationSubscription(null);
     }
 
     setGpsTracking(false);
@@ -464,56 +374,143 @@ export default function Route({ navigation }) {
   };
 
   // ==================================================
-  // OSRM ROAD ROUTE
+  // CONVERT PATH NODES → MAP COORDINATES
   // ==================================================
 
-  const getOSRMRoute = async (
-    startCoordinate,
-    destinationCoordinate
-  ) => {
-    try {
-      const coordinates =
-        `${startCoordinate.longitude},${startCoordinate.latitude};` +
-        `${destinationCoordinate.longitude},${destinationCoordinate.latitude}`;
+ const pathNodesToCoordinates = (
+  pathNodes,
+  locations
+) => {
+  if (
+    !Array.isArray(pathNodes) ||
+    !Array.isArray(locations)
+  ) {
+    return [];
+  }
 
-      const response = await fetch(
-        `${OSRM_URL}/${coordinates}?overview=simplified&geometries=geojson`
+  return pathNodes
+    .map((node) => {
+      // If pathNodes are already complete location objects
+      const location = locations.find(
+        (item) =>
+          String(item.id) ===
+          String(node.id)
       );
 
-      if (!response.ok) {
-        throw new Error(
-          `OSRM returned ${response.status}`
-        );
-      }
+      const point = location || node;
 
-      const data =
-        await response.json();
+      const latitude = Number(
+        point.lat ?? point.latitude
+      );
+
+      const longitude = Number(
+        point.lng ?? point.longitude
+      );
 
       if (
-        !data.routes ||
-        data.routes.length === 0
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude)
       ) {
-        throw new Error(
-          "No road route found."
-        );
+        return null;
       }
 
-      return data.routes[0].geometry.coordinates.map(
-        ([longitude, latitude]) => ({
-          latitude,
-          longitude,
-        })
-      );
-    } catch (error) {
-      console.log(
-        "❌ OSRM ERROR:",
-        error
-      );
+      return {
+        latitude,
+        longitude,
+      };
+    })
+    .filter(Boolean);
+};
+  // ==================================================
+  // UPDATE MAP WITH BOTH ROUTES
+  // ==================================================
 
-      return [];
-    }
-  };
+  const displayCalculatedRoutesOnMap = (
+  routeResult,
+  locations
+) => {
+  if (!routeResult || !locations) {
+    return;
+  }
 
+  const fastestNodes =
+    routeResult.fastestRoute?.pathNodes || [];
+
+  const safestNodes =
+    routeResult.safestRoute?.pathNodes || [];
+
+  const fastestCoordinates =
+    pathNodesToCoordinates(
+      fastestNodes,
+      locations
+    );
+
+  const safestCoordinates =
+    pathNodesToCoordinates(
+      safestNodes,
+      locations
+    );
+
+  console.log(
+    "🟡 FASTEST MAP NODES:",
+    fastestNodes
+  );
+
+  console.log(
+    "🟢 SAFEST MAP NODES:",
+    safestNodes
+  );
+
+ console.log(
+  "🟡 FASTEST MAP COORDINATES:",
+  JSON.stringify(fastestCoordinates, null, 2)
+);
+
+console.log(
+  "🟢 SAFEST MAP COORDINATES:",
+  JSON.stringify(safestCoordinates, null, 2)
+);
+  setFastestRouteCoordinates(
+    fastestCoordinates
+  );
+
+  setSafestRouteCoordinates(
+    safestCoordinates
+  );
+
+  // ----------------------------------------------
+  // FIT MAP TO BOTH ROUTES
+  // ----------------------------------------------
+// ----------------------------------------------
+// FIT MAP TO BOTH ROUTES
+// ----------------------------------------------
+
+const combinedCoordinates = [
+  ...fastestCoordinates,
+  ...safestCoordinates,
+];
+
+if (currentLocation && combinedCoordinates.length > 0) {
+  combinedCoordinates.push(currentLocation);
+}
+
+if (mapRef.current && combinedCoordinates.length > 1) {
+  setTimeout(() => {
+    mapRef.current.fitToCoordinates(
+      combinedCoordinates,
+      {
+        edgePadding: {
+          top: 100,
+          right: 60,
+          bottom: 100,
+          left: 60,
+        },
+        animated: true,
+      }
+    );
+  }, 1000);
+}
+};
   // ==================================================
   // FIND ROUTE
   // ONLINE → OFFLINE FALLBACK
@@ -551,16 +548,13 @@ export default function Route({ navigation }) {
       return;
     }
 
-    // ----------------------------------------------
-    // ROUTE CALCULATION
-    // ----------------------------------------------
-
     try {
       setLoadingRoute(true);
 
       setResult(null);
 
-      setRouteCoordinates([]);
+      setFastestRouteCoordinates([]);
+      setSafestRouteCoordinates([]);
 
       setStatus(
         "Analyzing safest and fastest routes..."
@@ -572,11 +566,9 @@ export default function Route({ navigation }) {
 
       let backendStartId;
 
-      let mapStartCoordinate;
-
-      // ----------------------------------------------
+      // ============================================
       // GPS START
-      // ----------------------------------------------
+      // ============================================
 
       if (currentLocation) {
         let nearestLocation = null;
@@ -632,18 +624,15 @@ export default function Route({ navigation }) {
             nearestLocation.id
           );
 
-        mapStartCoordinate =
-          currentLocation;
-
         console.log(
           "📍 GPS NEAREST LOCATION:",
           nearestLocation.name
         );
       }
 
-      // ----------------------------------------------
+      // ============================================
       // MANUAL START
-      // ----------------------------------------------
+      // ============================================
 
       else {
         const startLocation =
@@ -663,17 +652,6 @@ export default function Route({ navigation }) {
           Number(
             startLocation.id
           );
-
-        mapStartCoordinate = {
-          latitude:
-            Number(
-              startLocation.latitude
-            ),
-          longitude:
-            Number(
-              startLocation.longitude
-            ),
-        };
       }
 
       // ============================================
@@ -698,21 +676,9 @@ export default function Route({ navigation }) {
           destinationLocation.id
         );
 
-      const mapDestinationCoordinate =
-        {
-          latitude:
-            Number(
-              destinationLocation.latitude
-            ),
-          longitude:
-            Number(
-              destinationLocation.longitude
-            ),
-        };
-
-      // ----------------------------------------------
+      // ============================================
       // SAME LOCATION CHECK
-      // ----------------------------------------------
+      // ============================================
 
       if (
         backendStartId ===
@@ -725,8 +691,7 @@ export default function Route({ navigation }) {
 
       // ============================================
       // ROUTE ANALYSIS
-      // ONLINE → BACKEND
-      // OFFLINE → LOCAL SQLITE
+      // ONLINE → OFFLINE
       // ============================================
 
       let routeResult;
@@ -753,8 +718,7 @@ export default function Route({ navigation }) {
 
         routeResult = {
           ...routeResult,
-          routingMode:
-            "online",
+          routingMode: "online",
         };
       } catch (onlineError) {
         // --------------------------------------------
@@ -786,11 +750,9 @@ export default function Route({ navigation }) {
             routeResult
           );
 
-          // Make sure routing mode is visible
           routeResult = {
             ...routeResult,
-            routingMode:
-              "offline",
+            routingMode: "offline",
           };
         } catch (offlineError) {
           console.log(
@@ -809,36 +771,15 @@ export default function Route({ navigation }) {
       // SAVE RESULT
       // ============================================
 
-      setResult(
-        routeResult
-      );
+      setResult(routeResult);
 
       // ============================================
-      // MAP ROAD ROUTE
+      // DRAW BOTH CALCULATED ROUTES
       // ============================================
 
-      /*
-       * IMPORTANT:
-       *
-       * OSRM is an online service.
-       *
-       * The actual route intelligence above can
-       * work completely offline using SQLite.
-       *
-       * If internet is unavailable, OSRM will fail
-       * and return [].
-       *
-       * The route result will still be displayed.
-       */
-
-      const roadCoordinates =
-        await getOSRMRoute(
-          mapStartCoordinate,
-          mapDestinationCoordinate
-        );
-
-      setRouteCoordinates(
-        roadCoordinates
+      displayCalculatedRoutesOnMap(
+        routeResult,
+        locations
       );
 
       // ----------------------------------------------
@@ -921,18 +862,21 @@ export default function Route({ navigation }) {
   const formatETA = (
     minutes
   ) => {
-    if (!minutes) {
+    if (
+      minutes === null ||
+      minutes === undefined
+    ) {
       return "N/A";
     }
 
     const hours =
       Math.floor(
-        minutes / 60
+        Number(minutes) / 60
       );
 
     const mins =
       Math.round(
-        minutes % 60
+        Number(minutes) % 60
       );
 
     if (hours === 0) {
@@ -1014,9 +958,7 @@ export default function Route({ navigation }) {
                 );
               }
 
-              setGpsTracking(
-                false
-              );
+              setGpsTracking(false);
 
               setCurrentLocation(
                 null
@@ -1025,7 +967,11 @@ export default function Route({ navigation }) {
 
             setResult(null);
 
-            setRouteCoordinates(
+            setFastestRouteCoordinates(
+              []
+            );
+
+            setSafestRouteCoordinates(
               []
             );
           }}
@@ -1039,9 +985,7 @@ export default function Route({ navigation }) {
           {locations.map(
             (location) => (
               <Picker.Item
-                key={
-                  location.id
-                }
+                key={location.id}
                 label={`${location.name}, ${location.state}`}
                 value={String(
                   location.id
@@ -1067,9 +1011,7 @@ export default function Route({ navigation }) {
             ? stopGPSTracking
             : startGPSTracking
         }
-        disabled={
-          loadingRoute
-        }
+        disabled={loadingRoute}
       >
         <Text
           style={
@@ -1106,7 +1048,11 @@ export default function Route({ navigation }) {
 
             setResult(null);
 
-            setRouteCoordinates(
+            setFastestRouteCoordinates(
+              []
+            );
+
+            setSafestRouteCoordinates(
               []
             );
           }}
@@ -1120,9 +1066,7 @@ export default function Route({ navigation }) {
           {locations.map(
             (location) => (
               <Picker.Item
-                key={
-                  location.id
-                }
+                key={location.id}
                 label={`${location.name}, ${location.state}`}
                 value={String(
                   location.id
@@ -1146,9 +1090,7 @@ export default function Route({ navigation }) {
         onPress={
           handleFindRoute
         }
-        disabled={
-          loadingRoute
-        }
+        disabled={loadingRoute}
       >
         <Text
           style={
@@ -1167,6 +1109,7 @@ export default function Route({ navigation }) {
 
       <View style={styles.mapContainer}>
         <MapView
+          ref={mapRef}
           style={styles.map}
           initialRegion={{
             latitude:
@@ -1177,7 +1120,9 @@ export default function Route({ navigation }) {
             longitudeDelta: 4,
           }}
         >
-          {/* CURRENT GPS */}
+          {/* ==================================================
+              CURRENT GPS
+          ================================================== */}
 
           {currentLocation && (
             <Marker
@@ -1193,7 +1138,9 @@ export default function Route({ navigation }) {
             />
           )}
 
-          {/* START */}
+          {/* ==================================================
+              START
+          ================================================== */}
 
           {!currentLocation &&
             selectedStart && (
@@ -1215,7 +1162,9 @@ export default function Route({ navigation }) {
               />
             )}
 
-          {/* DESTINATION */}
+          {/* ==================================================
+              DESTINATION
+          ================================================== */}
 
           {selectedDestination && (
             <Marker
@@ -1236,19 +1185,92 @@ export default function Route({ navigation }) {
             />
           )}
 
-          {/* ROUTE */}
+          {/* ==================================================
+              SAFEST ROUTE
+              GREEN
+          ================================================== */}
 
-          {routeCoordinates.length >
-            0 && (
+          {safestRouteCoordinates.length >
+            1 && (
             <Polyline
               coordinates={
-                routeCoordinates
+                safestRouteCoordinates
+              }
+              strokeWidth={9}
+              strokeColor="#30483B"
+              lineCap="round"
+              lineJoin="round"
+              zIndex={1}
+            />
+          )}
+
+          {/* ==================================================
+              FASTEST ROUTE
+              MUSTARD / YELLOW
+          ================================================== */}
+
+          {fastestRouteCoordinates.length >
+            1 && (
+            <Polyline
+              coordinates={
+                fastestRouteCoordinates
               }
               strokeWidth={5}
-              strokeColor="#A9573F"
+              strokeColor="#B8944A"
+              lineCap="round"
+              lineJoin="round"
+              zIndex={2}
             />
           )}
         </MapView>
+
+        {/* ==================================================
+            MAP LEGEND
+        ================================================== */}
+
+        {result && (
+          <View style={styles.mapLegend}>
+            <View style={styles.legendRow}>
+              <View
+                style={[
+                  styles.legendLine,
+                  {
+                    backgroundColor:
+                      "#30483B",
+                  },
+                ]}
+              />
+
+              <Text
+                style={
+                  styles.legendText
+                }
+              >
+                🛡 Safest Route
+              </Text>
+            </View>
+
+            <View style={styles.legendRow}>
+              <View
+                style={[
+                  styles.legendLine,
+                  {
+                    backgroundColor:
+                      "#B8944A",
+                  },
+                ]}
+              />
+
+              <Text
+                style={
+                  styles.legendText
+                }
+              >
+                ⚡ Fastest Route
+              </Text>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* ==================================================
@@ -1303,12 +1325,12 @@ export default function Route({ navigation }) {
           {result.fastestRoute && (
             <View
               style={
-                styles.routeCard
+                styles.fastestCard
               }
             >
               <Text
                 style={
-                  styles.cardTitle
+                  styles.fastestTitle
                 }
               >
                 ⚡ Fastest Route
@@ -1392,12 +1414,12 @@ export default function Route({ navigation }) {
           {result.safestRoute && (
             <View
               style={
-                styles.routeCard
+                styles.safestCard
               }
             >
               <Text
                 style={
-                  styles.cardTitle
+                  styles.safestTitle
                 }
               >
                 🛡 Safest Route
@@ -1615,14 +1637,47 @@ const styles = StyleSheet.create({
   },
 
   mapContainer: {
-    height: 350,
+    height: 400,
     marginTop: 25,
     borderRadius: 15,
     overflow: "hidden",
+    position: "relative",
   },
 
   map: {
     flex: 1,
+  },
+
+  mapLegend: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    backgroundColor: "rgba(237, 232, 220, 0.95)",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    elevation: 4,
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+
+  legendRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 4,
+  },
+
+  legendLine: {
+    width: 28,
+    height: 6,
+    borderRadius: 5,
+    marginRight: 8,
+  },
+
+  legendText: {
+    color: "#20231F",
+    fontSize: 13,
+    fontWeight: "bold",
   },
 
   resultsContainer: {
@@ -1657,14 +1712,32 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 
-  routeCard: {
+  fastestCard: {
+    backgroundColor: "#E5D6A9",
+    padding: 18,
+    borderRadius: 15,
+    marginBottom: 15,
+    borderWidth: 2,
+    borderColor: "#B8944A",
+  },
+
+  safestCard: {
     backgroundColor: "#CBD0C0",
     padding: 18,
     borderRadius: 15,
     marginBottom: 15,
+    borderWidth: 2,
+    borderColor: "#30483B",
   },
 
-  cardTitle: {
+  fastestTitle: {
+    fontSize: 19,
+    fontWeight: "bold",
+    color: "#20231F",
+    marginBottom: 12,
+  },
+
+  safestTitle: {
     fontSize: 19,
     fontWeight: "bold",
     color: "#20231F",
