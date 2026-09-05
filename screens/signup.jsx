@@ -1,4 +1,10 @@
 import React, { useState } from "react";
+
+import {
+  createUser,
+  getUserByEmail,
+} from "../services/database";
+
 import {
   View,
   Text,
@@ -18,12 +24,9 @@ export default function Signup({ navigation }) {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState("");
-
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Tracks which field currently has focus so inputs can show a
-  // deliberate, subtle focus state instead of a static border.
   const [focusedField, setFocusedField] = useState(null);
 
   const roles = [
@@ -59,7 +62,7 @@ export default function Signup({ navigation }) {
     },
   ];
 
-  const handleSignup = () => {
+  const handleSignup = async () => {
     if (
       !name.trim() ||
       !email.trim() ||
@@ -78,7 +81,10 @@ export default function Signup({ navigation }) {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!emailRegex.test(email.trim())) {
-      Alert.alert("Invalid Email", "Please enter a valid email address.");
+      Alert.alert(
+        "Invalid Email",
+        "Please enter a valid email address."
+      );
       return;
     }
 
@@ -101,21 +107,51 @@ export default function Signup({ navigation }) {
     }
 
     if (password !== confirmPassword) {
-      Alert.alert("Password Error", "Passwords do not match.");
+      Alert.alert(
+        "Password Error",
+        "Passwords do not match."
+      );
       return;
     }
 
-    // Backend signup will be connected later
-    Alert.alert(
-      "Account Created",
-      `Welcome to PurvaSetu, ${name.trim()}!`,
-      [
-        {
-          text: "Continue",
-          onPress: () => navigation.navigate("Login"),
-        },
-      ]
-    );
+    // SAVE USER TO SQLITE
+    try {
+      const existingUser = await getUserByEmail(email);
+
+      if (existingUser) {
+        Alert.alert(
+          "Account Already Exists",
+          "An account with this email is already registered."
+        );
+        return;
+      }
+
+      await createUser({
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        password,
+        role,
+      });
+
+      Alert.alert(
+        "Account Created",
+        `Welcome to PurvaSetu, ${name.trim()}!`,
+        [
+          {
+            text: "Continue",
+            onPress: () => navigation.navigate("Login"),
+          },
+        ]
+      );
+    } catch (error) {
+      console.log("❌ Signup error:", error);
+
+      Alert.alert(
+        "Signup Failed",
+        "Could not create your account. Please try again."
+      );
+    }
   };
 
   return (
@@ -137,6 +173,7 @@ export default function Signup({ navigation }) {
         <View style={styles.card}>
           {/* HEADER */}
           <Text style={styles.title}>Create Account</Text>
+
           <Text style={styles.subtitle}>
             Join the intelligent logistics network
           </Text>
@@ -146,14 +183,22 @@ export default function Signup({ navigation }) {
             <View style={styles.sectionNumber}>
               <Text style={styles.sectionNumberText}>01</Text>
             </View>
-            <Text style={styles.sectionTitle}>Personal Information</Text>
+
+            <Text style={styles.sectionTitle}>
+              Personal Information
+            </Text>
           </View>
+
           <View style={styles.sectionRule} />
 
           {/* FULL NAME */}
           <Text style={styles.label}>Full Name</Text>
+
           <TextInput
-            style={[styles.input, focusedField === "name" && styles.inputFocused]}
+            style={[
+              styles.input,
+              focusedField === "name" && styles.inputFocused,
+            ]}
             placeholder="Enter your full name"
             placeholderTextColor="#8B8F86"
             value={name}
@@ -165,8 +210,12 @@ export default function Signup({ navigation }) {
 
           {/* EMAIL */}
           <Text style={styles.label}>Email Address</Text>
+
           <TextInput
-            style={[styles.input, focusedField === "email" && styles.inputFocused]}
+            style={[
+              styles.input,
+              focusedField === "email" && styles.inputFocused,
+            ]}
             placeholder="Enter your email address"
             placeholderTextColor="#8B8F86"
             keyboardType="email-address"
@@ -180,6 +229,7 @@ export default function Signup({ navigation }) {
 
           {/* PHONE */}
           <Text style={styles.label}>Phone Number</Text>
+
           <View
             style={[
               styles.phoneWrapper,
@@ -197,154 +247,161 @@ export default function Signup({ navigation }) {
               keyboardType="phone-pad"
               maxLength={10}
               value={phone}
-              onChangeText={(text) => setPhone(text.replace(/[^0-9]/g, ""))}
+              onChangeText={(text) =>
+                setPhone(text.replace(/[^0-9]/g, ""))
+              }
               onFocus={() => setFocusedField("phone")}
               onBlur={() => setFocusedField(null)}
             />
           </View>
 
           {/* SECURITY */}
-          <View style={[styles.sectionHeader, styles.securityHeader]}>
+          <View
+            style={[
+              styles.sectionHeader,
+              styles.securityHeader,
+            ]}
+          >
             <View style={styles.sectionNumber}>
               <Text style={styles.sectionNumberText}>02</Text>
             </View>
-            <Text style={styles.sectionTitle}>Account Security</Text>
+
+            <Text style={styles.sectionTitle}>
+              Account Security
+            </Text>
           </View>
+
           <View style={styles.sectionRule} />
 
           {/* PASSWORD */}
-          <Text style={styles.label}>Password</Text>
-          <View
-            style={[
-              styles.passwordWrapper,
-              focusedField === "password" && styles.inputFocused,
-            ]}
-          >
-            <TextInput
-              style={styles.passwordInput}
-              placeholder="Create a password"
-              placeholderTextColor="#8B8F86"
-              secureTextEntry={!showPassword}
-              value={password}
-              onChangeText={setPassword}
-              onFocus={() => setFocusedField("password")}
-              onBlur={() => setFocusedField(null)}
-            />
+<Text style={styles.label}>Password</Text>
 
-            <TouchableOpacity
-              style={styles.showButton}
-              onPress={() => setShowPassword(!showPassword)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.showText}>
-                {showPassword ? "HIDE" : "SHOW"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.helperText}>
-            Use at least 8 characters for a secure password.
-          </Text>
+<View style={styles.passwordWrapper}>
+  <TextInput
+    style={styles.passwordInput}
+    placeholder="Create a password"
+    placeholderTextColor="#8B8F86"
+    value={password}
+    onChangeText={(text) => setPassword(text)}
+    secureTextEntry={true}
+    autoCapitalize="none"
+    autoCorrect={false}
+  />
+</View>
 
-          {/* CONFIRM PASSWORD */}
-          <Text style={styles.label}>Confirm Password</Text>
-          <View
-            style={[
-              styles.passwordWrapper,
-              focusedField === "confirmPassword" && styles.inputFocused,
-            ]}
-          >
-            <TextInput
-              style={styles.passwordInput}
-              placeholder="Confirm your password"
-              placeholderTextColor="#8B8F86"
-              secureTextEntry={!showConfirmPassword}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              onFocus={() => setFocusedField("confirmPassword")}
-              onBlur={() => setFocusedField(null)}
-            />
+<Text style={styles.helperText}>
+  Use at least 8 characters for a secure password.
+</Text>
 
-            <TouchableOpacity
-              style={styles.showButton}
-              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.showText}>
-                {showConfirmPassword ? "HIDE" : "SHOW"}
-              </Text>
-            </TouchableOpacity>
-          </View>
+
+{/* CONFIRM PASSWORD */}
+<Text style={styles.label}>Confirm Password</Text>
+
+<View style={styles.passwordWrapper}>
+  <TextInput
+    style={styles.passwordInput}
+    placeholder="Re-enter your password"
+    placeholderTextColor="#8B8F86"
+    value={confirmPassword}
+    onChangeText={(text) => setConfirmPassword(text)}
+    secureTextEntry={true}
+    autoCapitalize="none"
+    autoCorrect={false}
+  />
+</View>
 
           {/* ROLE */}
-          <View style={[styles.sectionHeader, styles.roleHeader]}>
+          <View
+            style={[
+              styles.sectionHeader,
+              styles.roleHeader,
+            ]}
+          >
             <View style={styles.sectionNumber}>
-              <Text style={styles.sectionNumberText}>03</Text>
-            </View>
-            <View>
-              <Text style={styles.sectionTitle}>Choose Your Role</Text>
-              <Text style={styles.sectionSubtitle}>
-                Select the role that best describes you
+              <Text style={styles.sectionNumberText}>
+                03
               </Text>
             </View>
+
+            <Text style={styles.sectionTitle}>
+              Select Your Role
+            </Text>
           </View>
+
           <View style={styles.sectionRule} />
 
-          {/* ROLE CARDS */}
           <View style={styles.rolesContainer}>
-            {roles.map((item) => {
-              const selected = role === item.id;
-
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[styles.roleCard, selected && styles.roleCardSelected]}
-                  onPress={() => setRole(item.id)}
-                  activeOpacity={0.85}
+            {roles.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={[
+                  styles.roleCard,
+                  role === item.id &&
+                    styles.roleCardSelected,
+                ]}
+                onPress={() => setRole(item.id)}
+                activeOpacity={0.85}
+              >
+                <View
+                  style={[
+                    styles.roleIcon,
+                    role === item.id &&
+                      styles.roleIconSelected,
+                  ]}
                 >
-                  <View
+                  <Text
                     style={[
-                      styles.roleIcon,
-                      selected && styles.roleIconSelected,
+                      styles.roleIconText,
+                      role === item.id &&
+                        styles.roleIconTextSelected,
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.roleIconText,
-                        selected && styles.roleIconTextSelected,
-                      ]}
-                    >
-                      {item.icon}
-                    </Text>
-                  </View>
+                    {item.icon}
+                  </Text>
+                </View>
 
-                  <View style={styles.roleContent}>
-                    <Text
-                      style={[
-                        styles.roleTitle,
-                        selected && styles.roleTitleSelected,
-                      ]}
-                    >
-                      {item.title}
-                    </Text>
-                    <Text style={styles.roleDescription}>
-                      {item.description}
-                    </Text>
-                  </View>
+                <View style={styles.roleContent}>
+                  <Text
+                    style={[
+                      styles.roleTitle,
+                      role === item.id &&
+                        styles.roleTitleSelected,
+                    ]}
+                  >
+                    {item.title}
+                  </Text>
 
-                  <View style={[styles.radio, selected && styles.radioSelected]}>
-                    {selected && <View style={styles.radioDot} />}
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+                  <Text style={styles.roleDescription}>
+                    {item.description}
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    styles.radio,
+                    role === item.id &&
+                      styles.radioSelected,
+                  ]}
+                >
+                  {role === item.id && (
+                    <View style={styles.radioDot} />
+                  )}
+                </View>
+              </TouchableOpacity>
+            ))}
           </View>
 
           {/* SELECTED ROLE */}
           {role !== "" && (
             <View style={styles.selectedRoleBox}>
-              <Text style={styles.selectedRoleLabel}>SELECTED ROLE</Text>
+              <Text style={styles.selectedRoleLabel}>
+                SELECTED ROLE
+              </Text>
+
               <Text style={styles.selectedRoleText}>
-                {roles.find((item) => item.id === role)?.title}
+                {roles.find(
+                  (item) => item.id === role
+                )?.title}
               </Text>
             </View>
           )}
@@ -355,52 +412,44 @@ export default function Signup({ navigation }) {
             onPress={handleSignup}
             activeOpacity={0.88}
           >
-            <Text style={styles.signupText}>CREATE ACCOUNT</Text>
+            <Text style={styles.signupText}>
+              CREATE ACCOUNT
+            </Text>
+
             <Text style={styles.arrow}>→</Text>
           </TouchableOpacity>
 
           {/* LOGIN */}
           <View style={styles.loginDivider} />
+
           <View style={styles.loginRow}>
-            <Text style={styles.loginText}>Already have an account?</Text>
+            <Text style={styles.loginText}>
+              Already have an account?
+            </Text>
+
             <TouchableOpacity
-              onPress={() => navigation.navigate("Login")}
+              onPress={() =>
+                navigation.navigate("Login")
+              }
               activeOpacity={0.7}
             >
-              <Text style={styles.loginLink}> Login</Text>
+              <Text style={styles.loginLink}>
+                {" "}
+                Login
+              </Text>
             </TouchableOpacity>
           </View>
 
           {/* FOOTER */}
           <Text style={styles.footerText}>
-            By creating an account, you agree to the PurvaSetu terms and
-            privacy policy.
+            By creating an account, you agree to the
+            PurvaSetu terms and privacy policy.
           </Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
-
-/*
-  DESIGN TOKENS (palette values are unchanged from the original spec —
-  only how/where they're applied has been refined for hierarchy and rhythm)
-  ------------------------------------------------------------------------
-  screen bg        #EDE8DC
-  card bg          #F6F1E7   (was #CBD0C0 — softened so the card reads as
-                              one continuous surface with the screen instead
-                              of a hard nested box)
-  card border      #DDE0D5
-  input bg         #F2EEE4
-  input border     #C2B47C   → focus: #30483B
-  accent (green)   #30483B
-  accent (rust)    #A9573F
-  text primary     #20231F
-  text body        #33372F
-  text muted       #5E675D / #697166 / #747A70 / #8B8F86
-  sage containers  #CBD0C0 / #DCE1D5 / #E2E5D8 / #DDE0D5
-  gold/neutral     #C2B47C / #D2CCB8 / #D4CCB8
-*/
 
 const styles = StyleSheet.create({
   screen: {
@@ -414,9 +463,6 @@ const styles = StyleSheet.create({
     paddingTop: 32,
     paddingBottom: 36,
   },
-
-  /* BRAND — sits above the card as its own lockup, so the card doesn't
-     have to carry the logo's visual weight on top of the form */
 
   brandContainer: {
     alignItems: "center",
@@ -438,10 +484,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 
-  /* CARD — a single soft surface, not a contrasting box: close in tone to
-     the screen background, separated by a hairline border and a gentle
-     shadow instead of hard color contrast */
-
   card: {
     width: "100%",
     backgroundColor: "#F6F1E7",
@@ -450,15 +492,12 @@ const styles = StyleSheet.create({
     borderColor: "#DDE0D5",
     paddingHorizontal: 22,
     paddingVertical: 30,
-
     shadowColor: "#30483B",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.08,
     shadowRadius: 16,
     elevation: 3,
   },
-
-  /* HEADER */
 
   title: {
     color: "#20231F",
@@ -475,10 +514,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginBottom: 28,
   },
-
-  /* SECTIONS — a genuine 3-step sequence (info → security → role), so the
-     numbered badges stay; they now sit inside a compact stepper row with a
-     hairline rule underneath to close out the section cleanly */
 
   sectionHeader: {
     flexDirection: "row",
@@ -528,8 +563,6 @@ const styles = StyleSheet.create({
     marginTop: 30,
   },
 
-  /* LABELS */
-
   label: {
     color: "#33372F",
     fontSize: 13,
@@ -537,8 +570,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 16,
   },
-
-  /* INPUTS */
 
   input: {
     height: 52,
@@ -560,8 +591,6 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 2,
   },
-
-  /* PHONE */
 
   phoneWrapper: {
     height: 52,
@@ -598,8 +627,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#20231F",
   },
-
-  /* PASSWORD */
 
   passwordWrapper: {
     height: 52,
@@ -640,8 +667,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginLeft: 2,
   },
-
-  /* ROLES */
 
   rolesContainer: {
     gap: 10,
@@ -712,8 +737,6 @@ const styles = StyleSheet.create({
     fontWeight: "400",
   },
 
-  /* RADIO */
-
   radio: {
     width: 20,
     height: 20,
@@ -736,8 +759,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: "#F6F1E7",
   },
-
-  /* SELECTED ROLE */
 
   selectedRoleBox: {
     marginTop: 14,
@@ -763,8 +784,6 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
 
-  /* BUTTON */
-
   signupButton: {
     height: 54,
     backgroundColor: "#A9573F",
@@ -773,7 +792,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-
     shadowColor: "#A9573F",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.22,
@@ -794,8 +812,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: 8,
   },
-
-  /* LOGIN */
 
   loginDivider: {
     height: 1,
@@ -820,8 +836,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     fontSize: 13,
   },
-
-  /* FOOTER */
 
   footerText: {
     color: "#747A70",

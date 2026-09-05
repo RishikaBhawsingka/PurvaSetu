@@ -241,11 +241,7 @@ const Home = ({ navigation }) => {
             </View>
 
           </TouchableOpacity>
-           <TouchableOpacity
-  onPress={() => navigation.navigate("BackendTest")}
->
-  <Text>Test Backend</Text>
-</TouchableOpacity>
+         
 
           {/* ================================================= */}
           {/* BOTTOM MESSAGE                                    */}

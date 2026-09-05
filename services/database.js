@@ -68,7 +68,21 @@ export const initDatabase = async () => {
         flood_warning_level TEXT DEFAULT 'none',
         recorded_at TEXT
       );
+          -- ============================================
+      -- 5. USERS (Local Authentication)
+      -- ============================================
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        phone TEXT NOT NULL,
+        password TEXT NOT NULL,
+        role TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
     `);
+
+      
 
     console.log("✅ SQLite database initialized");
 
@@ -523,6 +537,86 @@ export const resetDatabase = async () => {
     console.log("✅ SQLite database recreated with latest schema");
   } catch (error) {
     console.log("❌ SQLite reset failed:", error);
+    throw error;
+  }
+};
+/* =========================================================
+   USERS / AUTHENTICATION
+   ========================================================= */
+
+export const createUser = async ({
+  name,
+  email,
+  phone,
+  password,
+  role,
+}) => {
+  try {
+    const database = await getDatabase();
+
+    const result = await database.runAsync(
+      `
+      INSERT INTO users
+      (name, email, phone, password, role)
+      VALUES (?, ?, ?, ?, ?)
+      `,
+      name.trim(),
+      email.trim().toLowerCase(),
+      phone.trim(),
+      password,
+      role
+    );
+
+    console.log("✅ User created:", result.lastInsertRowId);
+
+    return result;
+  } catch (error) {
+    console.log("❌ Error creating user:", error);
+    throw error;
+  }
+};
+
+export const getUserByEmail = async (email) => {
+  try {
+    const database = await getDatabase();
+
+    const user = await database.getFirstAsync(
+      `
+      SELECT *
+      FROM users
+      WHERE email = ?
+      `,
+      email.trim().toLowerCase()
+    );
+
+    return user || null;
+  } catch (error) {
+    console.log("❌ Error finding user:", error);
+    throw error;
+  }
+};
+
+export const authenticateUser = async (
+  email,
+  password
+) => {
+  try {
+    const database = await getDatabase();
+
+    const user = await database.getFirstAsync(
+      `
+      SELECT id, name, email, phone, role
+      FROM users
+      WHERE email = ?
+      AND password = ?
+      `,
+      email.trim().toLowerCase(),
+      password
+    );
+
+    return user || null;
+  } catch (error) {
+    console.log("❌ Authentication error:", error);
     throw error;
   }
 };

@@ -1,1760 +1,850 @@
-import React, { useEffect, useRef, useState } from "react";
+
+import React, { useState } from "react";
+
+import {
+  createUser,
+  getUserByEmail,
+} from "../services/database";
+
 import {
   View,
   Text,
-  StyleSheet,
+  TextInput,
   TouchableOpacity,
+  StyleSheet,
   ScrollView,
-  ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 
-import * as Location from "expo-location";
-import MapView, { Marker, Polyline } from "react-native-maps";
-import { Picker } from "@react-native-picker/picker";
+export default function Signup({ navigation }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [role, setRole] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-import { analyzeOfflineRoute } from "../services/offlineRoutingService";
-import { analyzeRoute } from "../services/api";
+  const [focusedField, setFocusedField] = useState(null);
 
-import {
-  initDatabase,
-  getLocalLocations,
-  syncOfflineRoutingData,
-  getLocalRoadSegments,
-  getLocalDisruptions,
-  getLocalWeatherData,
-} from "../services/database";
+  const roles = [
+    {
+      id: "citizen",
+      title: "Public Citizen",
+      description: "Access routes, alerts & report issues",
+      icon: "◉",
+    },
+    {
+      id: "administrator",
+      title: "Administrator",
+      description: "Manage operations & monitor the network",
+      icon: "◆",
+    },
+    {
+      id: "driver",
+      title: "Convoy Driver",
+      description: "Navigate routes & update deliveries",
+      icon: "▣",
+    },
+    {
+      id: "ndma",
+      title: "NDMA / SDRF",
+      description: "Coordinate emergency response operations",
+      icon: "✦",
+    },
+    {
+      id: "logistic",
+      title: "Logistic Lead",
+      description: "Manage supplies & logistics movement",
+      icon: "◇",
+    },
+  ];
 
-export default function Route({ navigation }) {
-  // ==================================================
-  // STATE
-  // ==================================================
+  const handleSignup = async () => {
+    if (
+      !name.trim() ||
+      !email.trim() ||
+      !phone.trim() ||
+      !password ||
+      !confirmPassword ||
+      !role
+    ) {
+      Alert.alert(
+        "Missing Information",
+        "Please fill in all fields and select your role."
+      );
+      return;
+    }
 
-  const [locations, setLocations] = useState([]);
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  const [startId, setStartId] = useState("");
-  const [destinationId, setDestinationId] = useState("");
+    if (!emailRegex.test(email.trim())) {
+      Alert.alert(
+        "Invalid Email",
+        "Please enter a valid email address."
+      );
+      return;
+    }
 
-  const [currentLocation, setCurrentLocation] = useState(null);
+    const phoneRegex = /^[6-9]\d{9}$/;
 
-  // Separate coordinates for fastest and safest routes
-  const [fastestRouteCoordinates, setFastestRouteCoordinates] = useState([]);
-  const [safestRouteCoordinates, setSafestRouteCoordinates] = useState([]);
+    if (!phoneRegex.test(phone.trim())) {
+      Alert.alert(
+        "Invalid Phone Number",
+        "Please enter a valid 10-digit Indian mobile number."
+      );
+      return;
+    }
 
-  const [result, setResult] = useState(null);
+    if (password.length < 8) {
+      Alert.alert(
+        "Weak Password",
+        "Password must contain at least 8 characters."
+      );
+      return;
+    }
 
-  const [loadingLocations, setLoadingLocations] = useState(true);
-  const [loadingRoute, setLoadingRoute] = useState(false);
+    if (password !== confirmPassword) {
+      Alert.alert(
+        "Password Error",
+        "Passwords do not match."
+      );
+      return;
+    }
 
-  const [gpsTracking, setGpsTracking] = useState(false);
-
-  const [status, setStatus] = useState(
-    "Loading NER locations..."
-  );
-
-  const [locationSubscription, setLocationSubscription] =
-    useState(null);
-
-  // Map reference
-  const mapRef = useRef(null);
-
-  // ==================================================
-  // LOAD OFFLINE ROUTING DATA
-  // ==================================================
-
-  useEffect(() => {
-    let mounted = true;
-
-    const loadLocations = async () => {
-      try {
-        setStatus("📱 Checking offline routing data...");
-
-        // ----------------------------------------------
-        // INITIALIZE SQLITE
-        // ----------------------------------------------
-
-        await initDatabase();
-
-        // ----------------------------------------------
-        // READ LOCAL DATA
-        // ----------------------------------------------
-
-        const localLocations = await getLocalLocations();
-        const localSegments = await getLocalRoadSegments();
-        const localDisruptions = await getLocalDisruptions();
-        const localWeather = await getLocalWeatherData();
-
-        console.log("================================");
-        console.log("📱 OFFLINE DATA CHECK");
-        console.log("📍 Locations:", localLocations.length);
-        console.log("🛣️ Road Segments:", localSegments.length);
-        console.log("⚠️ Disruptions:", localDisruptions.length);
-        console.log("🌦️ Weather:", localWeather.length);
-        console.log("================================");
-
-        // ----------------------------------------------
-        // OFFLINE DATA ALREADY AVAILABLE
-        // ----------------------------------------------
-
-        if (
-          localLocations.length > 0 &&
-          localSegments.length > 0
-        ) {
-          console.log(
-            `📦 Using ${localLocations.length} locations from SQLite`
-          );
-
-          if (!mounted) return;
-
-          setLocations(localLocations);
-
-          setStatus(
-            "📱 Offline routing data available."
-          );
-
-          return;
-        }
-
-        // ----------------------------------------------
-        // OFFLINE DATA MISSING
-        // DOWNLOAD FROM BACKEND
-        // ----------------------------------------------
-
-        console.log(
-          "🌐 Offline routing data incomplete. Downloading..."
-        );
-
-        setStatus(
-          "🌐 Downloading offline routing data..."
-        );
-
-        const syncResult =
-          await syncOfflineRoutingData();
-
-        if (!syncResult.success) {
-          throw new Error(
-            syncResult.error ||
-              "Offline data sync failed."
-          );
-        }
-
-        console.log("================================");
-        console.log("✅ OFFLINE DATA SYNC COMPLETE");
-        console.log("📍 Locations:", syncResult.locations);
-        console.log(
-          "🛣️ Road Segments:",
-          syncResult.roadSegments
-        );
-        console.log(
-          "⚠️ Disruptions:",
-          syncResult.disruptions
-        );
-        console.log(
-          "🌦️ Weather:",
-          syncResult.weather
-        );
-        console.log("================================");
-
-        // ----------------------------------------------
-        // READ LOCATIONS AGAIN
-        // ----------------------------------------------
-
-        const updatedLocations =
-          await getLocalLocations();
-
-        console.log(
-          `📦 SQLite locations after sync: ${updatedLocations.length}`
-        );
-
-        if (!mounted) return;
-
-        setLocations(updatedLocations);
-
-        setStatus(
-          "✅ Offline routing data downloaded."
-        );
-      } catch (error) {
-        console.log(
-          "❌ LOCATION/OFFLINE DATA LOAD ERROR:",
-          error
-        );
-
-        // ----------------------------------------------
-        // LOCAL FALLBACK
-        // ----------------------------------------------
-
-        try {
-          const fallbackLocations =
-            await getLocalLocations();
-
-          if (
-            mounted &&
-            fallbackLocations.length > 0
-          ) {
-            console.log(
-              `📦 Falling back to ${fallbackLocations.length} locally stored locations`
-            );
-
-            setLocations(fallbackLocations);
-
-            setStatus(
-              "⚠️ Using locally stored locations. Offline route data may be incomplete."
-            );
-
-            return;
-          }
-        } catch (fallbackError) {
-          console.log(
-            "❌ LOCAL FALLBACK ERROR:",
-            fallbackError
-          );
-        }
-
-        if (mounted) {
-          setStatus(
-            "❌ Could not load offline routing data."
-          );
-        }
-      } finally {
-        if (mounted) {
-          setLoadingLocations(false);
-        }
-      }
-    };
-
-    // Start loading
-    loadLocations();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  // ==================================================
-  // CLEAN GPS WATCHER WHEN SCREEN CLOSES
-  // ==================================================
-
-  useEffect(() => {
-    return () => {
-      if (locationSubscription) {
-        locationSubscription.remove();
-      }
-    };
-  }, [locationSubscription]);
-
-  // ==================================================
-  // START CONTINUOUS GPS TRACKING
-  // ==================================================
-
-  const startGPSTracking = async () => {
+    // SAVE USER TO SQLITE
     try {
-      setStatus("Requesting GPS permission...");
+      const existingUser = await getUserByEmail(email);
 
-      const {
-        status: permissionStatus,
-      } =
-        await Location.requestForegroundPermissionsAsync();
-
-      if (permissionStatus !== "granted") {
-        setStatus("❌ Location permission denied.");
-
+      if (existingUser) {
         Alert.alert(
-          "Location Permission",
-          "Please allow location access to use GPS tracking."
+          "Account Already Exists",
+          "An account with this email is already registered."
         );
-
         return;
       }
 
-      // ----------------------------------------------
-      // GET FIRST LOCATION
-      // ----------------------------------------------
+      await createUser({
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        password,
+        role,
+      });
 
-      const initialLocation =
-        await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-
-      const initialCoords = {
-        latitude: initialLocation.coords.latitude,
-        longitude: initialLocation.coords.longitude,
-      };
-
-      setCurrentLocation(initialCoords);
-
-      // Manual start is cleared
-      setStartId("");
-
-      // Clear old route results
-      setResult(null);
-      setFastestRouteCoordinates([]);
-      setSafestRouteCoordinates([]);
-
-      // ----------------------------------------------
-      // REMOVE OLD WATCHER
-      // ----------------------------------------------
-
-      if (locationSubscription) {
-        locationSubscription.remove();
-      }
-
-      // ----------------------------------------------
-      // CONTINUOUS GPS WATCHER
-      // ----------------------------------------------
-
-      const subscription =
-        await Location.watchPositionAsync(
+      Alert.alert(
+        "Account Created",
+        `Welcome to PurvaSetu, ${name.trim()}!`,
+        [
           {
-            accuracy: Location.Accuracy.Balanced,
-            timeInterval: 5000,
-            distanceInterval: 10,
+            text: "Continue",
+            onPress: () => navigation.navigate("Login"),
           },
-          (location) => {
-            const coords = {
-              latitude: location.coords.latitude,
-              longitude: location.coords.longitude,
-            };
-
-            console.log(
-              "📍 GPS UPDATE:",
-              coords
-            );
-
-            setCurrentLocation(coords);
-
-            setStatus(
-              "📍 GPS tracking active"
-            );
-          }
-        );
-
-      setLocationSubscription(subscription);
-
-      setGpsTracking(true);
-
-      setStatus(
-        "📍 GPS tracking active"
-      );
-
-      console.log(
-        "✅ CONTINUOUS GPS TRACKING STARTED"
+        ]
       );
     } catch (error) {
-      console.log(
-        "❌ GPS TRACKING ERROR:",
-        error
-      );
+      console.log("❌ Signup error:", error);
 
-      setStatus(
-        "❌ Could not start GPS tracking."
+      Alert.alert(
+        "Signup Failed",
+        "Could not create your account. Please try again."
       );
     }
   };
-
-  // ==================================================
-  // STOP GPS TRACKING
-  // ==================================================
-
-  const stopGPSTracking = () => {
-    if (locationSubscription) {
-      locationSubscription.remove();
-
-      setLocationSubscription(null);
-    }
-
-    setGpsTracking(false);
-
-    setStatus(
-      "GPS tracking stopped."
-    );
-
-    console.log(
-      "🛑 GPS TRACKING STOPPED"
-    );
-  };
-
-  // ==================================================
-  // CONVERT PATH NODES → MAP COORDINATES
-  // ==================================================
-
- const pathNodesToCoordinates = (
-  pathNodes,
-  locations
-) => {
-  if (
-    !Array.isArray(pathNodes) ||
-    !Array.isArray(locations)
-  ) {
-    return [];
-  }
-
-  return pathNodes
-    .map((node) => {
-      // If pathNodes are already complete location objects
-      const location = locations.find(
-        (item) =>
-          String(item.id) ===
-          String(node.id)
-      );
-
-      const point = location || node;
-
-      const latitude = Number(
-        point.lat ?? point.latitude
-      );
-
-      const longitude = Number(
-        point.lng ?? point.longitude
-      );
-
-      if (
-        !Number.isFinite(latitude) ||
-        !Number.isFinite(longitude)
-      ) {
-        return null;
-      }
-
-      return {
-        latitude,
-        longitude,
-      };
-    })
-    .filter(Boolean);
-};
-  // ==================================================
-  // UPDATE MAP WITH BOTH ROUTES
-  // ==================================================
-
-  const displayCalculatedRoutesOnMap = (
-  routeResult,
-  locations
-) => {
-  if (!routeResult || !locations) {
-    return;
-  }
-
-  const fastestNodes =
-    routeResult.fastestRoute?.pathNodes || [];
-
-  const safestNodes =
-    routeResult.safestRoute?.pathNodes || [];
-
-  const fastestCoordinates =
-    pathNodesToCoordinates(
-      fastestNodes,
-      locations
-    );
-
-  const safestCoordinates =
-    pathNodesToCoordinates(
-      safestNodes,
-      locations
-    );
-
-  console.log(
-    "🟡 FASTEST MAP NODES:",
-    fastestNodes
-  );
-
-  console.log(
-    "🟢 SAFEST MAP NODES:",
-    safestNodes
-  );
-
- console.log(
-  "🟡 FASTEST MAP COORDINATES:",
-  JSON.stringify(fastestCoordinates, null, 2)
-);
-
-console.log(
-  "🟢 SAFEST MAP COORDINATES:",
-  JSON.stringify(safestCoordinates, null, 2)
-);
-  setFastestRouteCoordinates(
-    fastestCoordinates
-  );
-
-  setSafestRouteCoordinates(
-    safestCoordinates
-  );
-
-  // ----------------------------------------------
-  // FIT MAP TO BOTH ROUTES
-  // ----------------------------------------------
-// ----------------------------------------------
-// FIT MAP TO BOTH ROUTES
-// ----------------------------------------------
-
-const combinedCoordinates = [
-  ...fastestCoordinates,
-  ...safestCoordinates,
-];
-
-if (currentLocation && combinedCoordinates.length > 0) {
-  combinedCoordinates.push(currentLocation);
-}
-
-if (mapRef.current && combinedCoordinates.length > 1) {
-  setTimeout(() => {
-    mapRef.current.fitToCoordinates(
-      combinedCoordinates,
-      {
-        edgePadding: {
-          top: 100,
-          right: 60,
-          bottom: 100,
-          left: 60,
-        },
-        animated: true,
-      }
-    );
-  }, 1000);
-}
-};
-  // ==================================================
-  // FIND ROUTE
-  // ONLINE → OFFLINE FALLBACK
-  // ==================================================
-
-  const handleFindRoute = async () => {
-    if (loadingRoute) {
-      return;
-    }
-
-    // ----------------------------------------------
-    // DESTINATION VALIDATION
-    // ----------------------------------------------
-
-    if (!destinationId) {
-      setStatus(
-        "Please select a destination."
-      );
-
-      return;
-    }
-
-    // ----------------------------------------------
-    // START VALIDATION
-    // ----------------------------------------------
-
-    if (
-      !startId &&
-      !currentLocation
-    ) {
-      setStatus(
-        "Please select a starting location or use GPS."
-      );
-
-      return;
-    }
-
-    try {
-      setLoadingRoute(true);
-
-      setResult(null);
-
-      setFastestRouteCoordinates([]);
-      setSafestRouteCoordinates([]);
-
-      setStatus(
-        "Analyzing safest and fastest routes..."
-      );
-
-      // ============================================
-      // DETERMINE BACKEND START
-      // ============================================
-
-      let backendStartId;
-
-      // ============================================
-      // GPS START
-      // ============================================
-
-      if (currentLocation) {
-        let nearestLocation = null;
-
-        let nearestDistance =
-          Infinity;
-
-        locations.forEach(
-          (location) => {
-            const lat =
-              Number(
-                location.latitude
-              );
-
-            const lng =
-              Number(
-                location.longitude
-              );
-
-            const distance =
-              Math.pow(
-                lat -
-                  currentLocation.latitude,
-                2
-              ) +
-              Math.pow(
-                lng -
-                  currentLocation.longitude,
-                2
-              );
-
-            if (
-              distance <
-              nearestDistance
-            ) {
-              nearestDistance =
-                distance;
-
-              nearestLocation =
-                location;
-            }
-          }
-        );
-
-        if (!nearestLocation) {
-          throw new Error(
-            "Could not determine nearest NER location."
-          );
-        }
-
-        backendStartId =
-          Number(
-            nearestLocation.id
-          );
-
-        console.log(
-          "📍 GPS NEAREST LOCATION:",
-          nearestLocation.name
-        );
-      }
-
-      // ============================================
-      // MANUAL START
-      // ============================================
-
-      else {
-        const startLocation =
-          locations.find(
-            (item) =>
-              String(item.id) ===
-              String(startId)
-          );
-
-        if (!startLocation) {
-          throw new Error(
-            "Starting location not found."
-          );
-        }
-
-        backendStartId =
-          Number(
-            startLocation.id
-          );
-      }
-
-      // ============================================
-      // DESTINATION
-      // ============================================
-
-      const destinationLocation =
-        locations.find(
-          (item) =>
-            String(item.id) ===
-            String(destinationId)
-        );
-
-      if (!destinationLocation) {
-        throw new Error(
-          "Destination location not found."
-        );
-      }
-
-      const backendDestinationId =
-        Number(
-          destinationLocation.id
-        );
-
-      // ============================================
-      // SAME LOCATION CHECK
-      // ============================================
-
-      if (
-        backendStartId ===
-        backendDestinationId
-      ) {
-        throw new Error(
-          "Starting location and destination cannot be the same."
-        );
-      }
-
-      // ============================================
-      // ROUTE ANALYSIS
-      // ONLINE → OFFLINE
-      // ============================================
-
-      let routeResult;
-
-      try {
-        // --------------------------------------------
-        // ONLINE BACKEND
-        // --------------------------------------------
-
-        console.log(
-          "🌐 Trying online backend route analysis..."
-        );
-
-        routeResult =
-          await analyzeRoute(
-            backendStartId,
-            backendDestinationId
-          );
-
-        console.log(
-          "✅ ONLINE ROUTE RESULT:",
-          routeResult
-        );
-
-        routeResult = {
-          ...routeResult,
-          routingMode: "online",
-        };
-      } catch (onlineError) {
-        // --------------------------------------------
-        // OFFLINE FALLBACK
-        // --------------------------------------------
-
-        console.log(
-          "📱 Backend unavailable. Switching to offline routing..."
-        );
-
-        console.log(
-          "⚠️ Online route error:",
-          onlineError.message
-        );
-
-        try {
-          setStatus(
-            "📱 Internet unavailable. Calculating route offline..."
-          );
-
-          routeResult =
-            await analyzeOfflineRoute(
-              backendStartId,
-              backendDestinationId
-            );
-
-          console.log(
-            "✅ OFFLINE ROUTE RESULT:",
-            routeResult
-          );
-
-          routeResult = {
-            ...routeResult,
-            routingMode: "offline",
-          };
-        } catch (offlineError) {
-          console.log(
-            "❌ OFFLINE ROUTING ERROR:",
-            offlineError
-          );
-
-          throw new Error(
-            offlineError.message ||
-              "Offline route calculation failed."
-          );
-        }
-      }
-
-      // ============================================
-      // SAVE RESULT
-      // ============================================
-
-      setResult(routeResult);
-
-      // ============================================
-      // DRAW BOTH CALCULATED ROUTES
-      // ============================================
-
-      displayCalculatedRoutesOnMap(
-        routeResult,
-        locations
-      );
-
-      // ----------------------------------------------
-      // FINAL STATUS
-      // ----------------------------------------------
-
-      if (
-        routeResult.routingMode ===
-        "offline"
-      ) {
-        setStatus(
-          "📱 Offline route analysis completed."
-        );
-      } else {
-        setStatus(
-          "✅ Route analysis completed."
-        );
-      }
-    } catch (error) {
-      console.log(
-        "❌ ROUTE ERROR:",
-        error
-      );
-
-      setStatus(
-        `❌ ${
-          error.message ||
-          "Route analysis failed."
-        }`
-      );
-    } finally {
-      setLoadingRoute(false);
-    }
-  };
-
-  // ==================================================
-  // SELECTED LOCATIONS
-  // ==================================================
-
-  const selectedStart =
-    locations.find(
-      (item) =>
-        String(item.id) ===
-        String(startId)
-    );
-
-  const selectedDestination =
-    locations.find(
-      (item) =>
-        String(item.id) ===
-        String(destinationId)
-    );
-
-  // ==================================================
-  // MAP CENTER
-  // ==================================================
-
-  const mapCenter =
-    currentLocation ||
-    (selectedStart
-      ? {
-          latitude:
-            Number(
-              selectedStart.latitude
-            ),
-          longitude:
-            Number(
-              selectedStart.longitude
-            ),
-        }
-      : {
-          latitude: 26.1445,
-          longitude: 91.7362,
-        });
-
-  // ==================================================
-  // ETA FORMAT
-  // ==================================================
-
-  const formatETA = (
-    minutes
-  ) => {
-    if (
-      minutes === null ||
-      minutes === undefined
-    ) {
-      return "N/A";
-    }
-
-    const hours =
-      Math.floor(
-        Number(minutes) / 60
-      );
-
-    const mins =
-      Math.round(
-        Number(minutes) % 60
-      );
-
-    if (hours === 0) {
-      return `${mins} min`;
-    }
-
-    return `${hours} hr ${mins} min`;
-  };
-
-  // ==================================================
-  // UI
-  // ==================================================
 
   return (
-    <ScrollView
-      contentContainerStyle={
-        styles.container
-      }
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      {/* ==================================================
-          TITLE
-      ================================================== */}
-
-      <Text style={styles.title}>
-        Find Best Route
-      </Text>
-
-      <Text style={styles.subtitle}>
-        Plan a safer and smarter journey
-        across the North Eastern Region.
-      </Text>
-
-      {/* ==================================================
-          STATUS
-      ================================================== */}
-
-      <View style={styles.statusBox}>
-        {(loadingLocations ||
-          loadingRoute) && (
-          <ActivityIndicator
-            size="small"
-            color="#30483B"
-          />
-        )}
-
-        <Text style={styles.status}>
-          {status}
-        </Text>
-      </View>
-
-      {/* ==================================================
-          STARTING LOCATION
-      ================================================== */}
-
-      <Text style={styles.label}>
-        Starting Location
-      </Text>
-
-      <View
-        style={
-          styles.pickerContainer
-        }
+      <ScrollView
+        contentContainerStyle={styles.container}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
-        <Picker
-          selectedValue={startId}
-          onValueChange={(value) => {
-            setStartId(value);
+        {/* BRAND */}
+        <View style={styles.brandContainer}>
+          <Text style={styles.logo}>PurvaSetu</Text>
+          <View style={styles.logoLine} />
+        </View>
 
-            if (value) {
-              // Manual selection overrides GPS
+        <View style={styles.card}>
+          {/* HEADER */}
+          <Text style={styles.title}>Create Account</Text>
 
-              if (
-                locationSubscription
-              ) {
-                locationSubscription.remove();
-
-                setLocationSubscription(
-                  null
-                );
-              }
-
-              setGpsTracking(false);
-
-              setCurrentLocation(
-                null
-              );
-            }
-
-            setResult(null);
-
-            setFastestRouteCoordinates(
-              []
-            );
-
-            setSafestRouteCoordinates(
-              []
-            );
-          }}
-          style={styles.picker}
-        >
-          <Picker.Item
-            label="Select starting location"
-            value=""
-          />
-
-          {locations.map(
-            (location) => (
-              <Picker.Item
-                key={location.id}
-                label={`${location.name}, ${location.state}`}
-                value={String(
-                  location.id
-                )}
-              />
-            )
-          )}
-        </Picker>
-      </View>
-
-      {/* ==================================================
-          GPS BUTTON
-      ================================================== */}
-
-      <TouchableOpacity
-        style={[
-          styles.gpsButton,
-          gpsTracking &&
-            styles.gpsActiveButton,
-        ]}
-        onPress={
-          gpsTracking
-            ? stopGPSTracking
-            : startGPSTracking
-        }
-        disabled={loadingRoute}
-      >
-        <Text
-          style={
-            styles.gpsButtonText
-          }
-        >
-          {gpsTracking
-            ? "🛑 Stop GPS Tracking"
-            : "📍 Use My Current GPS Location"}
-        </Text>
-      </TouchableOpacity>
-
-      {/* ==================================================
-          DESTINATION
-      ================================================== */}
-
-      <Text style={styles.label}>
-        Destination
-      </Text>
-
-      <View
-        style={
-          styles.pickerContainer
-        }
-      >
-        <Picker
-          selectedValue={
-            destinationId
-          }
-          onValueChange={(value) => {
-            setDestinationId(
-              value
-            );
-
-            setResult(null);
-
-            setFastestRouteCoordinates(
-              []
-            );
-
-            setSafestRouteCoordinates(
-              []
-            );
-          }}
-          style={styles.picker}
-        >
-          <Picker.Item
-            label="Select destination"
-            value=""
-          />
-
-          {locations.map(
-            (location) => (
-              <Picker.Item
-                key={location.id}
-                label={`${location.name}, ${location.state}`}
-                value={String(
-                  location.id
-                )}
-              />
-            )
-          )}
-        </Picker>
-      </View>
-
-      {/* ==================================================
-          FIND ROUTE BUTTON
-      ================================================== */}
-
-      <TouchableOpacity
-        style={[
-          styles.routeButton,
-          loadingRoute &&
-            styles.routeButtonDisabled,
-        ]}
-        onPress={
-          handleFindRoute
-        }
-        disabled={loadingRoute}
-      >
-        <Text
-          style={
-            styles.routeButtonText
-          }
-        >
-          {loadingRoute
-            ? "Analyzing Route..."
-            : "Find Best Route"}
-        </Text>
-      </TouchableOpacity>
-
-      {/* ==================================================
-          MAP
-      ================================================== */}
-
-      <View style={styles.mapContainer}>
-        <MapView
-          ref={mapRef}
-          style={styles.map}
-          initialRegion={{
-            latitude:
-              mapCenter.latitude,
-            longitude:
-              mapCenter.longitude,
-            latitudeDelta: 4,
-            longitudeDelta: 4,
-          }}
-        >
-          {/* ==================================================
-              CURRENT GPS
-          ================================================== */}
-
-          {currentLocation && (
-            <Marker
-              coordinate={
-                currentLocation
-              }
-              title="Your Current Location"
-              description={
-                gpsTracking
-                  ? "Live GPS tracking"
-                  : "GPS location"
-              }
-            />
-          )}
-
-          {/* ==================================================
-              START
-          ================================================== */}
-
-          {!currentLocation &&
-            selectedStart && (
-              <Marker
-                coordinate={{
-                  latitude:
-                    Number(
-                      selectedStart.latitude
-                    ),
-                  longitude:
-                    Number(
-                      selectedStart.longitude
-                    ),
-                }}
-                title={
-                  selectedStart.name
-                }
-                description="Starting location"
-              />
-            )}
-
-          {/* ==================================================
-              DESTINATION
-          ================================================== */}
-
-          {selectedDestination && (
-            <Marker
-              coordinate={{
-                latitude:
-                  Number(
-                    selectedDestination.latitude
-                  ),
-                longitude:
-                  Number(
-                    selectedDestination.longitude
-                  ),
-              }}
-              title={
-                selectedDestination.name
-              }
-              description="Destination"
-            />
-          )}
-
-          {/* ==================================================
-              SAFEST ROUTE
-              GREEN
-          ================================================== */}
-
-          {safestRouteCoordinates.length >
-            1 && (
-            <Polyline
-              coordinates={
-                safestRouteCoordinates
-              }
-              strokeWidth={9}
-              strokeColor="#30483B"
-              lineCap="round"
-              lineJoin="round"
-              zIndex={1}
-            />
-          )}
-
-          {/* ==================================================
-              FASTEST ROUTE
-              MUSTARD / YELLOW
-          ================================================== */}
-
-          {fastestRouteCoordinates.length >
-            1 && (
-            <Polyline
-              coordinates={
-                fastestRouteCoordinates
-              }
-              strokeWidth={5}
-              strokeColor="#B8944A"
-              lineCap="round"
-              lineJoin="round"
-              zIndex={2}
-            />
-          )}
-        </MapView>
-
-        {/* ==================================================
-            MAP LEGEND
-        ================================================== */}
-
-        {result && (
-          <View style={styles.mapLegend}>
-            <View style={styles.legendRow}>
-              <View
-                style={[
-                  styles.legendLine,
-                  {
-                    backgroundColor:
-                      "#30483B",
-                  },
-                ]}
-              />
-
-              <Text
-                style={
-                  styles.legendText
-                }
-              >
-                🛡 Safest Route
-              </Text>
-            </View>
-
-            <View style={styles.legendRow}>
-              <View
-                style={[
-                  styles.legendLine,
-                  {
-                    backgroundColor:
-                      "#B8944A",
-                  },
-                ]}
-              />
-
-              <Text
-                style={
-                  styles.legendText
-                }
-              >
-                ⚡ Fastest Route
-              </Text>
-            </View>
-          </View>
-        )}
-      </View>
-
-      {/* ==================================================
-          RESULTS
-      ================================================== */}
-
-      {result && (
-        <View
-          style={
-            styles.resultsContainer
-          }
-        >
-          <Text
-            style={
-              styles.resultsTitle
-            }
-          >
-            Route Intelligence
+          <Text style={styles.subtitle}>
+            Join the intelligent logistics network
           </Text>
 
-          {/* ==================================================
-              RECOMMENDATION
-          ================================================== */}
+          {/* PERSONAL INFORMATION */}
+          <View style={styles.sectionHeader}>
+            <View style={styles.sectionNumber}>
+              <Text style={styles.sectionNumberText}>01</Text>
+            </View>
 
-          <View
-            style={
-              styles.recommendationCard
-            }
-          >
-            <Text
-              style={
-                styles.recommendationTitle
-              }
-            >
-              AI Recommendation
-            </Text>
-
-            <Text
-              style={
-                styles.recommendation
-              }
-            >
-              {result.recommendation ||
-                "No recommendation available."}
+            <Text style={styles.sectionTitle}>
+              Personal Information
             </Text>
           </View>
 
-          {/* ==================================================
-              FASTEST ROUTE
-          ================================================== */}
+          <View style={styles.sectionRule} />
 
-          {result.fastestRoute && (
-            <View
-              style={
-                styles.fastestCard
+          {/* FULL NAME */}
+          <Text style={styles.label}>Full Name</Text>
+
+          <TextInput
+            style={[
+              styles.input,
+              focusedField === "name" && styles.inputFocused,
+            ]}
+            placeholder="Enter your full name"
+            placeholderTextColor="#8B8F86"
+            value={name}
+            onChangeText={setName}
+            autoCapitalize="words"
+            onFocus={() => setFocusedField("name")}
+            onBlur={() => setFocusedField(null)}
+          />
+
+          {/* EMAIL */}
+          <Text style={styles.label}>Email Address</Text>
+
+          <TextInput
+            style={[
+              styles.input,
+              focusedField === "email" && styles.inputFocused,
+            ]}
+            placeholder="Enter your email address"
+            placeholderTextColor="#8B8F86"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={email}
+            onChangeText={setEmail}
+            onFocus={() => setFocusedField("email")}
+            onBlur={() => setFocusedField(null)}
+          />
+
+          {/* PHONE */}
+          <Text style={styles.label}>Phone Number</Text>
+
+          <View
+            style={[
+              styles.phoneWrapper,
+              focusedField === "phone" && styles.inputFocused,
+            ]}
+          >
+            <View style={styles.countryCode}>
+              <Text style={styles.countryCodeText}>+91</Text>
+            </View>
+
+            <TextInput
+              style={styles.phoneInput}
+              placeholder="Enter 10-digit mobile number"
+              placeholderTextColor="#8B8F86"
+              keyboardType="phone-pad"
+              maxLength={10}
+              value={phone}
+              onChangeText={(text) =>
+                setPhone(text.replace(/[^0-9]/g, ""))
               }
-            >
-              <Text
-                style={
-                  styles.fastestTitle
-                }
+              onFocus={() => setFocusedField("phone")}
+              onBlur={() => setFocusedField(null)}
+            />
+          </View>
+
+          {/* SECURITY */}
+          <View
+            style={[
+              styles.sectionHeader,
+              styles.securityHeader,
+            ]}
+          >
+            <View style={styles.sectionNumber}>
+              <Text style={styles.sectionNumberText}>02</Text>
+            </View>
+
+            <Text style={styles.sectionTitle}>
+              Account Security
+            </Text>
+          </View>
+
+          <View style={styles.sectionRule} />
+
+          {/* PASSWORD */}
+<Text style={styles.label}>Password</Text>
+
+<View style={styles.passwordWrapper}>
+  <TextInput
+    style={styles.passwordInput}
+    placeholder="Create a password"
+    placeholderTextColor="#8B8F86"
+    value={password}
+    onChangeText={(text) => setPassword(text)}
+    secureTextEntry={true}
+    autoCapitalize="none"
+    autoCorrect={false}
+  />
+</View>
+
+<Text style={styles.helperText}>
+  Use at least 8 characters for a secure password.
+</Text>
+
+
+{/* CONFIRM PASSWORD */}
+<Text style={styles.label}>Confirm Password</Text>
+
+<View style={styles.passwordWrapper}>
+  <TextInput
+    style={styles.passwordInput}
+    placeholder="Re-enter your password"
+    placeholderTextColor="#8B8F86"
+    value={confirmPassword}
+    onChangeText={(text) => setConfirmPassword(text)}
+    secureTextEntry={true}
+    autoCapitalize="none"
+    autoCorrect={false}
+  />
+</View>
+
+          {/* ROLE */}
+          <View
+            style={[
+              styles.sectionHeader,
+              styles.roleHeader,
+            ]}
+          >
+            <View style={styles.sectionNumber}>
+              <Text style={styles.sectionNumberText}>
+                03
+              </Text>
+            </View>
+
+            <Text style={styles.sectionTitle}>
+              Select Your Role
+            </Text>
+          </View>
+
+          <View style={styles.sectionRule} />
+
+          <View style={styles.rolesContainer}>
+            {roles.map((item) => (
+              <TouchableOpacity
+                key={item.id}
+                style={[
+                  styles.roleCard,
+                  role === item.id &&
+                    styles.roleCardSelected,
+                ]}
+                onPress={() => setRole(item.id)}
+                activeOpacity={0.85}
               >
-                ⚡ Fastest Route
+                <View
+                  style={[
+                    styles.roleIcon,
+                    role === item.id &&
+                      styles.roleIconSelected,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.roleIconText,
+                      role === item.id &&
+                        styles.roleIconTextSelected,
+                    ]}
+                  >
+                    {item.icon}
+                  </Text>
+                </View>
+
+                <View style={styles.roleContent}>
+                  <Text
+                    style={[
+                      styles.roleTitle,
+                      role === item.id &&
+                        styles.roleTitleSelected,
+                    ]}
+                  >
+                    {item.title}
+                  </Text>
+
+                  <Text style={styles.roleDescription}>
+                    {item.description}
+                  </Text>
+                </View>
+
+                <View
+                  style={[
+                    styles.radio,
+                    role === item.id &&
+                      styles.radioSelected,
+                  ]}
+                >
+                  {role === item.id && (
+                    <View style={styles.radioDot} />
+                  )}
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* SELECTED ROLE */}
+          {role !== "" && (
+            <View style={styles.selectedRoleBox}>
+              <Text style={styles.selectedRoleLabel}>
+                SELECTED ROLE
               </Text>
 
-              <Text
-                style={styles.metric}
-              >
-                Distance:{" "}
-                {
-                  result
-                    .fastestRoute
-                    .totalDistanceKm
-                }{" "}
-                km
-              </Text>
-
-              <Text
-                style={styles.metric}
-              >
-                ETA:{" "}
-                {formatETA(
-                  result
-                    .fastestRoute
-                    .totalTransitTimeMin
-                )}
-              </Text>
-
-              <Text
-                style={styles.metric}
-              >
-                Risk Score:{" "}
-                {
-                  result
-                    .fastestRoute
-                    .averageRiskScore
-                }
-              </Text>
-
-              <Text
-                style={styles.metric}
-              >
-                Severity:{" "}
-                {
-                  result
-                    .fastestRoute
-                    .severityBand
-                }
-              </Text>
-
-              <Text
-                style={styles.metric}
-              >
-                Route Nodes:{" "}
-                {
-                  result
-                    .fastestRoute
-                    .nodesCount
-                }
-              </Text>
-
-              <Text
-                style={styles.metric}
-              >
-                Hazards:{" "}
-                {
-                  result
-                    .fastestRoute
-                    .hazardsEncountered
-                    ?.length ||
-                  0
-                }
+              <Text style={styles.selectedRoleText}>
+                {roles.find(
+                  (item) => item.id === role
+                )?.title}
               </Text>
             </View>
           )}
 
-          {/* ==================================================
-              SAFEST ROUTE
-          ================================================== */}
-
-          {result.safestRoute && (
-            <View
-              style={
-                styles.safestCard
-              }
-            >
-              <Text
-                style={
-                  styles.safestTitle
-                }
-              >
-                🛡 Safest Route
-              </Text>
-
-              <Text
-                style={styles.metric}
-              >
-                Distance:{" "}
-                {
-                  result
-                    .safestRoute
-                    .totalDistanceKm
-                }{" "}
-                km
-              </Text>
-
-              <Text
-                style={styles.metric}
-              >
-                ETA:{" "}
-                {formatETA(
-                  result
-                    .safestRoute
-                    .totalTransitTimeMin
-                )}
-              </Text>
-
-              <Text
-                style={styles.metric}
-              >
-                Risk Score:{" "}
-                {
-                  result
-                    .safestRoute
-                    .averageRiskScore
-                }
-              </Text>
-
-              <Text
-                style={styles.metric}
-              >
-                Severity:{" "}
-                {
-                  result
-                    .safestRoute
-                    .severityBand
-                }
-              </Text>
-
-              <Text
-                style={styles.metric}
-              >
-                Route Nodes:{" "}
-                {
-                  result
-                    .safestRoute
-                    .nodesCount
-                }
-              </Text>
-
-              <Text
-                style={styles.metric}
-              >
-                Hazards:{" "}
-                {
-                  result
-                    .safestRoute
-                    .hazardsEncountered
-                    ?.length ||
-                  0
-                }
-              </Text>
-            </View>
-          )}
-
-          {/* ==================================================
-              ROUTING MODE
-          ================================================== */}
-
-          {result.routingMode && (
-            <Text
-              style={
-                styles.aiStatus
-              }
-            >
-              Routing Mode:{" "}
-              {result.routingMode ===
-              "offline"
-                ? "📱 Offline SQLite"
-                : "🌐 Online Backend"}
+          {/* CREATE ACCOUNT */}
+          <TouchableOpacity
+            style={styles.signupButton}
+            onPress={handleSignup}
+            activeOpacity={0.88}
+          >
+            <Text style={styles.signupText}>
+              CREATE ACCOUNT
             </Text>
-          )}
 
-          {/* ==================================================
-              AI ENGINE STATUS
-          ================================================== */}
+            <Text style={styles.arrow}>→</Text>
+          </TouchableOpacity>
 
-          {result.aiEngineStatus && (
-            <Text
-              style={
-                styles.aiStatus
-              }
-            >
-              AI Engine:{" "}
-              {
-                result.aiEngineStatus
-              }
+          {/* LOGIN */}
+          <View style={styles.loginDivider} />
+
+          <View style={styles.loginRow}>
+            <Text style={styles.loginText}>
+              Already have an account?
             </Text>
-          )}
+
+            <TouchableOpacity
+              onPress={() =>
+                navigation.navigate("Login")
+              }
+              activeOpacity={0.7}
+            >
+              <Text style={styles.loginLink}>
+                {" "}
+                Login
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* FOOTER */}
+          <Text style={styles.footerText}>
+            By creating an account, you agree to the
+            PurvaSetu terms and privacy policy.
+          </Text>
         </View>
-      )}
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
-// ==================================================
-// STYLES
-// ==================================================
-
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    padding: 20,
+  screen: {
+    flex: 1,
     backgroundColor: "#EDE8DC",
   },
 
+  container: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingTop: 32,
+    paddingBottom: 36,
+  },
+
+  brandContainer: {
+    alignItems: "center",
+    marginBottom: 24,
+  },
+
+  logo: {
+    color: "#30483B",
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: 3.5,
+  },
+
+  logoLine: {
+    width: 30,
+    height: 3,
+    backgroundColor: "#A9573F",
+    borderRadius: 5,
+    marginTop: 8,
+  },
+
+  card: {
+    width: "100%",
+    backgroundColor: "#F6F1E7",
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: "#DDE0D5",
+    paddingHorizontal: 22,
+    paddingVertical: 30,
+    shadowColor: "#30483B",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 3,
+  },
+
   title: {
-    fontSize: 28,
-    fontWeight: "bold",
     color: "#20231F",
+    fontSize: 26,
+    fontWeight: "800",
     textAlign: "center",
-    marginTop: 20,
+    letterSpacing: -0.3,
   },
 
   subtitle: {
-    fontSize: 15,
-    color: "#30483B",
+    color: "#5E675D",
+    fontSize: 14,
     textAlign: "center",
-    marginTop: 7,
-    marginBottom: 20,
-    lineHeight: 21,
+    marginTop: 6,
+    marginBottom: 28,
   },
 
-  statusBox: {
-    minHeight: 30,
+  sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-    gap: 8,
+    marginBottom: 14,
   },
 
-  status: {
-    fontSize: 14,
-    color: "#30483B",
-    textAlign: "center",
+  sectionNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: "#30483B",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+
+  sectionNumberText: {
+    color: "#EDE8DC",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  sectionTitle: {
+    color: "#20231F",
+    fontSize: 15.5,
+    fontWeight: "700",
+  },
+
+  sectionSubtitle: {
+    color: "#697166",
+    fontSize: 12,
+    marginTop: 2,
+  },
+
+  sectionRule: {
+    height: 1,
+    backgroundColor: "#D4CCB8",
+    marginBottom: 18,
+  },
+
+  securityHeader: {
+    marginTop: 30,
+  },
+
+  roleHeader: {
+    marginTop: 30,
   },
 
   label: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#20231F",
-    marginTop: 10,
+    color: "#33372F",
+    fontSize: 13,
+    fontWeight: "700",
     marginBottom: 8,
+    marginTop: 16,
   },
 
-  pickerContainer: {
-    backgroundColor: "#CBD0C0",
-    borderRadius: 12,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#30483B",
-  },
-
-  picker: {
-    color: "#20231F",
-  },
-
-  gpsButton: {
-    backgroundColor: "#B8944A",
-    paddingVertical: 13,
-    borderRadius: 12,
-    marginTop: 12,
-    marginBottom: 12,
-    alignItems: "center",
-  },
-
-  gpsActiveButton: {
-    backgroundColor: "#A9573F",
-  },
-
-  gpsButtonText: {
-    color: "#20231F",
+  input: {
+    height: 52,
+    backgroundColor: "#F2EEE4",
+    borderRadius: 14,
+    paddingHorizontal: 16,
     fontSize: 15,
-    fontWeight: "bold",
+    color: "#20231F",
+    borderWidth: 1,
+    borderColor: "#C2B47C",
   },
 
-  routeButton: {
-    backgroundColor: "#A9573F",
-    paddingVertical: 16,
-    borderRadius: 12,
-    marginTop: 20,
+  inputFocused: {
+    borderColor: "#30483B",
+    borderWidth: 1.5,
+    shadowColor: "#30483B",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+
+  phoneWrapper: {
+    height: 52,
+    flexDirection: "row",
     alignItems: "center",
-  },
-
-  routeButtonDisabled: {
-    opacity: 0.65,
-  },
-
-  routeButtonText: {
-    color: "#EDE8DC",
-    fontSize: 17,
-    fontWeight: "bold",
-  },
-
-  mapContainer: {
-    height: 400,
-    marginTop: 25,
-    borderRadius: 15,
+    backgroundColor: "#F2EEE4",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#C2B47C",
     overflow: "hidden",
-    position: "relative",
   },
 
-  map: {
+  countryCode: {
+    height: "100%",
+    minWidth: 56,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    backgroundColor: "#CBD0C0",
+    borderRightWidth: 1,
+    borderRightColor: "#D4CCB8",
+  },
+
+  countryCodeText: {
+    color: "#30483B",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  phoneInput: {
+    flex: 1,
+    height: "100%",
+    paddingHorizontal: 14,
+    fontSize: 15,
+    color: "#20231F",
+  },
+
+  passwordWrapper: {
+    height: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F2EEE4",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#C2B47C",
+    paddingRight: 6,
+  },
+
+  passwordInput: {
+    flex: 1,
+    height: "100%",
+    paddingHorizontal: 16,
+    fontSize: 15,
+    color: "#20231F",
+  },
+
+  showButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 9,
+    backgroundColor: "#DCE1D5",
+  },
+
+  showText: {
+    color: "#30483B",
+    fontSize: 10.5,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+  },
+
+  helperText: {
+    color: "#697166",
+    fontSize: 11.5,
+    marginTop: 8,
+    marginLeft: 2,
+  },
+
+  rolesContainer: {
+    gap: 10,
+  },
+
+  roleCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 68,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: "#F2EEE4",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#D2CCB8",
+  },
+
+  roleCardSelected: {
+    backgroundColor: "#E2E5D8",
+    borderColor: "#30483B",
+    borderWidth: 1.5,
+  },
+
+  roleIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: "#DDE0D5",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+
+  roleIconSelected: {
+    backgroundColor: "#30483B",
+  },
+
+  roleIconText: {
+    color: "#30483B",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+
+  roleIconTextSelected: {
+    color: "#F6F1E7",
+  },
+
+  roleContent: {
     flex: 1,
   },
 
-  mapLegend: {
-    position: "absolute",
-    top: 12,
-    right: 12,
-    backgroundColor: "rgba(237, 232, 220, 0.95)",
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    elevation: 4,
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-  },
-
-  legendRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginVertical: 4,
-  },
-
-  legendLine: {
-    width: 28,
-    height: 6,
-    borderRadius: 5,
-    marginRight: 8,
-  },
-
-  legendText: {
+  roleTitle: {
     color: "#20231F",
-    fontSize: 13,
-    fontWeight: "bold",
+    fontSize: 14,
+    fontWeight: "700",
   },
 
-  resultsContainer: {
-    marginTop: 25,
-    paddingBottom: 30,
-  },
-
-  resultsTitle: {
-    fontSize: 23,
-    fontWeight: "bold",
-    color: "#20231F",
-    marginBottom: 15,
-  },
-
-  recommendationCard: {
-    backgroundColor: "#30483B",
-    padding: 18,
-    borderRadius: 15,
-    marginBottom: 15,
-  },
-
-  recommendationTitle: {
-    fontSize: 19,
-    fontWeight: "bold",
-    color: "#EDE8DC",
-    marginBottom: 10,
-  },
-
-  recommendation: {
-    color: "#EDE8DC",
-    fontSize: 15,
-    lineHeight: 22,
-  },
-
-  fastestCard: {
-    backgroundColor: "#E5D6A9",
-    padding: 18,
-    borderRadius: 15,
-    marginBottom: 15,
-    borderWidth: 2,
-    borderColor: "#B8944A",
-  },
-
-  safestCard: {
-    backgroundColor: "#CBD0C0",
-    padding: 18,
-    borderRadius: 15,
-    marginBottom: 15,
-    borderWidth: 2,
-    borderColor: "#30483B",
-  },
-
-  fastestTitle: {
-    fontSize: 19,
-    fontWeight: "bold",
-    color: "#20231F",
-    marginBottom: 12,
-  },
-
-  safestTitle: {
-    fontSize: 19,
-    fontWeight: "bold",
-    color: "#20231F",
-    marginBottom: 12,
-  },
-
-  metric: {
-    color: "#20231F",
-    fontSize: 15,
-    marginBottom: 7,
-  },
-
-  aiStatus: {
-    textAlign: "center",
+  roleTitleSelected: {
     color: "#30483B",
+  },
+
+  roleDescription: {
+    color: "#747A70",
+    fontSize: 11.5,
+    lineHeight: 16,
+    marginTop: 3,
+    paddingRight: 8,
+    fontWeight: "400",
+  },
+
+  radio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#8B8F86",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 8,
+  },
+
+  radioSelected: {
+    borderColor: "#30483B",
+    backgroundColor: "#30483B",
+  },
+
+  radioDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#F6F1E7",
+  },
+
+  selectedRoleBox: {
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: "#DCE1D5",
+    borderLeftWidth: 3,
+    borderLeftColor: "#A9573F",
+  },
+
+  selectedRoleLabel: {
+    color: "#697166",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 1,
+  },
+
+  selectedRoleText: {
+    color: "#30483B",
+    fontSize: 13.5,
+    fontWeight: "800",
+    marginTop: 3,
+  },
+
+  signupButton: {
+    height: 54,
+    backgroundColor: "#A9573F",
+    borderRadius: 15,
+    marginTop: 26,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#A9573F",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+
+  signupText: {
+    color: "#F6F1E7",
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: 0.8,
+  },
+
+  arrow: {
+    color: "#F6F1E7",
+    fontSize: 18,
+    fontWeight: "600",
+    marginLeft: 8,
+  },
+
+  loginDivider: {
+    height: 1,
+    backgroundColor: "#DDE0D5",
+    marginTop: 22,
+  },
+
+  loginRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 16,
+  },
+
+  loginText: {
+    color: "#33372F",
     fontSize: 13,
-    marginTop: 5,
-    marginBottom: 5,
+  },
+
+  loginLink: {
+    color: "#30483B",
+    fontWeight: "800",
+    fontSize: 13,
+  },
+
+  footerText: {
+    color: "#747A70",
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: "center",
+    marginTop: 16,
+    paddingHorizontal: 10,
   },
 });
+
