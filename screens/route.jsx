@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -13,65 +13,206 @@ import * as Location from "expo-location";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { Picker } from "@react-native-picker/picker";
 
-import {
-  getLocations,
-  analyzeRoute,
-} from "../services/api";
+import { analyzeOfflineRoute } from "../services/offlineRoutingService";
+import { analyzeRoute } from "../services/api";
 
-const OSRM_URL =
-  "https://router.project-osrm.org/route/v1/driving";
+import {
+  initDatabase,
+  getLocalLocations,
+  syncOfflineRoutingData,
+  getLocalRoadSegments,
+  getLocalDisruptions,
+  getLocalWeatherData,
+} from "../services/database";
 
 export default function Route({ navigation }) {
+  // ==================================================
+  // STATE
+  // ==================================================
+
   const [locations, setLocations] = useState([]);
 
   const [startId, setStartId] = useState("");
   const [destinationId, setDestinationId] = useState("");
 
-  const [currentLocation, setCurrentLocation] =
-    useState(null);
+  const [currentLocation, setCurrentLocation] = useState(null);
 
-  const [routeCoordinates, setRouteCoordinates] =
-    useState([]);
+  // Separate coordinates for fastest and safest routes
+  const [fastestRouteCoordinates, setFastestRouteCoordinates] = useState([]);
+  const [safestRouteCoordinates, setSafestRouteCoordinates] = useState([]);
 
   const [result, setResult] = useState(null);
 
-  const [loadingLocations, setLoadingLocations] =
-    useState(true);
+  const [loadingLocations, setLoadingLocations] = useState(true);
+  const [loadingRoute, setLoadingRoute] = useState(false);
 
-  const [loadingRoute, setLoadingRoute] =
-    useState(false);
+  const [gpsTracking, setGpsTracking] = useState(false);
 
   const [status, setStatus] = useState(
     "Loading NER locations..."
   );
 
-  // --------------------------------------------------
-  // LOAD ALL 46 NER LOCATIONS
-  // --------------------------------------------------
+  const [locationSubscription, setLocationSubscription] =
+    useState(null);
+
+  // Map reference
+  const mapRef = useRef(null);
+
+  // ==================================================
+  // LOAD OFFLINE ROUTING DATA
+  // ==================================================
 
   useEffect(() => {
     let mounted = true;
 
     const loadLocations = async () => {
       try {
-        const data = await getLocations();
+        setStatus("📱 Checking offline routing data...");
+
+        // ----------------------------------------------
+        // INITIALIZE SQLITE
+        // ----------------------------------------------
+
+        await initDatabase();
+
+        // ----------------------------------------------
+        // READ LOCAL DATA
+        // ----------------------------------------------
+
+        const localLocations = await getLocalLocations();
+        const localSegments = await getLocalRoadSegments();
+        const localDisruptions = await getLocalDisruptions();
+        const localWeather = await getLocalWeatherData();
+
+        console.log("================================");
+        console.log("📱 OFFLINE DATA CHECK");
+        console.log("📍 Locations:", localLocations.length);
+        console.log("🛣️ Road Segments:", localSegments.length);
+        console.log("⚠️ Disruptions:", localDisruptions.length);
+        console.log("🌦️ Weather:", localWeather.length);
+        console.log("================================");
+
+        // ----------------------------------------------
+        // OFFLINE DATA ALREADY AVAILABLE
+        // ----------------------------------------------
+
+        if (
+          localLocations.length > 0 &&
+          localSegments.length > 0
+        ) {
+          console.log(
+            `📦 Using ${localLocations.length} locations from SQLite`
+          );
+
+          if (!mounted) return;
+
+          setLocations(localLocations);
+
+          setStatus(
+            "📱 Offline routing data available."
+          );
+
+          return;
+        }
+
+        // ----------------------------------------------
+        // OFFLINE DATA MISSING
+        // DOWNLOAD FROM BACKEND
+        // ----------------------------------------------
+
+        console.log(
+          "🌐 Offline routing data incomplete. Downloading..."
+        );
+
+        setStatus(
+          "🌐 Downloading offline routing data..."
+        );
+
+        const syncResult =
+          await syncOfflineRoutingData();
+
+        if (!syncResult.success) {
+          throw new Error(
+            syncResult.error ||
+              "Offline data sync failed."
+          );
+        }
+
+        console.log("================================");
+        console.log("✅ OFFLINE DATA SYNC COMPLETE");
+        console.log("📍 Locations:", syncResult.locations);
+        console.log(
+          "🛣️ Road Segments:",
+          syncResult.roadSegments
+        );
+        console.log(
+          "⚠️ Disruptions:",
+          syncResult.disruptions
+        );
+        console.log(
+          "🌦️ Weather:",
+          syncResult.weather
+        );
+        console.log("================================");
+
+        // ----------------------------------------------
+        // READ LOCATIONS AGAIN
+        // ----------------------------------------------
+
+        const updatedLocations =
+          await getLocalLocations();
+
+        console.log(
+          `📦 SQLite locations after sync: ${updatedLocations.length}`
+        );
 
         if (!mounted) return;
 
-        setLocations(data);
+        setLocations(updatedLocations);
 
         setStatus(
-          "Select your starting point and destination."
+          "✅ Offline routing data downloaded."
         );
       } catch (error) {
         console.log(
-          "❌ LOCATION LOAD ERROR:",
+          "❌ LOCATION/OFFLINE DATA LOAD ERROR:",
           error
         );
 
+        // ----------------------------------------------
+        // LOCAL FALLBACK
+        // ----------------------------------------------
+
+        try {
+          const fallbackLocations =
+            await getLocalLocations();
+
+          if (
+            mounted &&
+            fallbackLocations.length > 0
+          ) {
+            console.log(
+              `📦 Falling back to ${fallbackLocations.length} locally stored locations`
+            );
+
+            setLocations(fallbackLocations);
+
+            setStatus(
+              "⚠️ Using locally stored locations. Offline route data may be incomplete."
+            );
+
+            return;
+          }
+        } catch (fallbackError) {
+          console.log(
+            "❌ LOCAL FALLBACK ERROR:",
+            fallbackError
+          );
+        }
+
         if (mounted) {
           setStatus(
-            "❌ Could not load NER locations."
+            "❌ Could not load offline routing data."
           );
         }
       } finally {
@@ -81,6 +222,7 @@ export default function Route({ navigation }) {
       }
     };
 
+    // Start loading
     loadLocations();
 
     return () => {
@@ -88,211 +230,388 @@ export default function Route({ navigation }) {
     };
   }, []);
 
-  // --------------------------------------------------
-  // GPS
-  // --------------------------------------------------
+  // ==================================================
+  // CLEAN GPS WATCHER WHEN SCREEN CLOSES
+  // ==================================================
 
-  const useCurrentLocation = async () => {
+  useEffect(() => {
+    return () => {
+      if (locationSubscription) {
+        locationSubscription.remove();
+      }
+    };
+  }, [locationSubscription]);
+
+  // ==================================================
+  // START CONTINUOUS GPS TRACKING
+  // ==================================================
+
+  const startGPSTracking = async () => {
     try {
-      setStatus(
-        "Getting your current location..."
-      );
+      setStatus("Requesting GPS permission...");
 
-      const { status } =
+      const {
+        status: permissionStatus,
+      } =
         await Location.requestForegroundPermissionsAsync();
 
-      if (status !== "granted") {
-        setStatus(
-          "❌ Location permission denied."
-        );
+      if (permissionStatus !== "granted") {
+        setStatus("❌ Location permission denied.");
 
         Alert.alert(
           "Location Permission",
-          "Please allow location access to use GPS."
+          "Please allow location access to use GPS tracking."
         );
 
         return;
       }
 
-      const location =
+      // ----------------------------------------------
+      // GET FIRST LOCATION
+      // ----------------------------------------------
+
+      const initialLocation =
         await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
 
-      const coords = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
+      const initialCoords = {
+        latitude: initialLocation.coords.latitude,
+        longitude: initialLocation.coords.longitude,
       };
 
-      setCurrentLocation(coords);
+      setCurrentLocation(initialCoords);
 
-      // Clear manual starting location
+      // Manual start is cleared
       setStartId("");
 
-      // Clear previous route
-      setRouteCoordinates([]);
+      // Clear old route results
       setResult(null);
+      setFastestRouteCoordinates([]);
+      setSafestRouteCoordinates([]);
+
+      // ----------------------------------------------
+      // REMOVE OLD WATCHER
+      // ----------------------------------------------
+
+      if (locationSubscription) {
+        locationSubscription.remove();
+      }
+
+      // ----------------------------------------------
+      // CONTINUOUS GPS WATCHER
+      // ----------------------------------------------
+
+      const subscription =
+        await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 5000,
+            distanceInterval: 10,
+          },
+          (location) => {
+            const coords = {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            };
+
+            console.log(
+              "📍 GPS UPDATE:",
+              coords
+            );
+
+            setCurrentLocation(coords);
+
+            setStatus(
+              "📍 GPS tracking active"
+            );
+          }
+        );
+
+      setLocationSubscription(subscription);
+
+      setGpsTracking(true);
 
       setStatus(
-        "✅ Current GPS location selected."
+        "📍 GPS tracking active"
       );
 
       console.log(
-        "📍 CURRENT GPS:",
-        coords
+        "✅ CONTINUOUS GPS TRACKING STARTED"
       );
     } catch (error) {
       console.log(
-        "❌ GPS ERROR:",
+        "❌ GPS TRACKING ERROR:",
         error
       );
 
       setStatus(
-        "❌ Could not get your current location."
+        "❌ Could not start GPS tracking."
       );
     }
   };
 
-  // --------------------------------------------------
-  // GET OSRM ROAD ROUTE
-  // --------------------------------------------------
+  // ==================================================
+  // STOP GPS TRACKING
+  // ==================================================
 
-  const getOSRMRoute = async (
-    startCoordinate,
-    destinationCoordinate
-  ) => {
-    try {
-      const coordinates =
-        `${startCoordinate.longitude},${startCoordinate.latitude};` +
-        `${destinationCoordinate.longitude},${destinationCoordinate.latitude}`;
+  const stopGPSTracking = () => {
+    if (locationSubscription) {
+      locationSubscription.remove();
 
-      /*
-       * overview=simplified keeps the number of
-       * coordinates much smaller than overview=full.
-       *
-       * This is important for React Native Maps
-       * performance on long NER routes.
-       */
+      setLocationSubscription(null);
+    }
 
-      const response = await fetch(
-        `${OSRM_URL}/${coordinates}?overview=simplified&geometries=geojson`
+    setGpsTracking(false);
+
+    setStatus(
+      "GPS tracking stopped."
+    );
+
+    console.log(
+      "🛑 GPS TRACKING STOPPED"
+    );
+  };
+
+  // ==================================================
+  // CONVERT PATH NODES → MAP COORDINATES
+  // ==================================================
+
+ const pathNodesToCoordinates = (
+  pathNodes,
+  locations
+) => {
+  if (
+    !Array.isArray(pathNodes) ||
+    !Array.isArray(locations)
+  ) {
+    return [];
+  }
+
+  return pathNodes
+    .map((node) => {
+      // If pathNodes are already complete location objects
+      const location = locations.find(
+        (item) =>
+          String(item.id) ===
+          String(node.id)
       );
 
-      if (!response.ok) {
-        throw new Error(
-          `OSRM returned ${response.status}`
-        );
-      }
+      const point = location || node;
 
-      const data = await response.json();
+      const latitude = Number(
+        point.lat ?? point.latitude
+      );
+
+      const longitude = Number(
+        point.lng ?? point.longitude
+      );
 
       if (
-        !data.routes ||
-        data.routes.length === 0
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude)
       ) {
-        throw new Error(
-          "No road route found."
-        );
+        return null;
       }
 
-      const coordinatesArray =
-        data.routes[0].geometry.coordinates;
+      return {
+        latitude,
+        longitude,
+      };
+    })
+    .filter(Boolean);
+};
+  // ==================================================
+  // UPDATE MAP WITH BOTH ROUTES
+  // ==================================================
 
-      return coordinatesArray.map(
-        ([longitude, latitude]) => ({
-          latitude,
-          longitude,
-        })
-      );
-    } catch (error) {
-      console.log(
-        "❌ OSRM ERROR:",
-        error
-      );
+  const displayCalculatedRoutesOnMap = (
+  routeResult,
+  locations
+) => {
+  if (!routeResult || !locations) {
+    return;
+  }
 
-      return [];
-    }
-  };
+  const fastestNodes =
+    routeResult.fastestRoute?.pathNodes || [];
 
-  // --------------------------------------------------
+  const safestNodes =
+    routeResult.safestRoute?.pathNodes || [];
+
+  const fastestCoordinates =
+    pathNodesToCoordinates(
+      fastestNodes,
+      locations
+    );
+
+  const safestCoordinates =
+    pathNodesToCoordinates(
+      safestNodes,
+      locations
+    );
+
+  console.log(
+    "🟡 FASTEST MAP NODES:",
+    fastestNodes
+  );
+
+  console.log(
+    "🟢 SAFEST MAP NODES:",
+    safestNodes
+  );
+
+ console.log(
+  "🟡 FASTEST MAP COORDINATES:",
+  JSON.stringify(fastestCoordinates, null, 2)
+);
+
+console.log(
+  "🟢 SAFEST MAP COORDINATES:",
+  JSON.stringify(safestCoordinates, null, 2)
+);
+  setFastestRouteCoordinates(
+    fastestCoordinates
+  );
+
+  setSafestRouteCoordinates(
+    safestCoordinates
+  );
+
+  // ----------------------------------------------
+  // FIT MAP TO BOTH ROUTES
+  // ----------------------------------------------
+// ----------------------------------------------
+// FIT MAP TO BOTH ROUTES
+// ----------------------------------------------
+
+const combinedCoordinates = [
+  ...fastestCoordinates,
+  ...safestCoordinates,
+];
+
+if (currentLocation && combinedCoordinates.length > 0) {
+  combinedCoordinates.push(currentLocation);
+}
+
+if (mapRef.current && combinedCoordinates.length > 1) {
+  setTimeout(() => {
+    mapRef.current.fitToCoordinates(
+      combinedCoordinates,
+      {
+        edgePadding: {
+          top: 100,
+          right: 60,
+          bottom: 100,
+          left: 60,
+        },
+        animated: true,
+      }
+    );
+  }, 1000);
+}
+};
+  // ==================================================
   // FIND ROUTE
-  // --------------------------------------------------
+  // ONLINE → OFFLINE FALLBACK
+  // ==================================================
 
   const handleFindRoute = async () => {
-    // Prevent double tapping
     if (loadingRoute) {
       return;
     }
 
-    // Destination is always required
+    // ----------------------------------------------
+    // DESTINATION VALIDATION
+    // ----------------------------------------------
+
     if (!destinationId) {
       setStatus(
         "Please select a destination."
       );
+
       return;
     }
 
-    // Either GPS or manual start is required
-    if (!startId && !currentLocation) {
+    // ----------------------------------------------
+    // START VALIDATION
+    // ----------------------------------------------
+
+    if (
+      !startId &&
+      !currentLocation
+    ) {
       setStatus(
         "Please select a starting location or use GPS."
       );
+
       return;
     }
 
     try {
       setLoadingRoute(true);
 
-      // Remove previous result immediately
       setResult(null);
-      setRouteCoordinates([]);
+
+      setFastestRouteCoordinates([]);
+      setSafestRouteCoordinates([]);
 
       setStatus(
         "Analyzing safest and fastest routes..."
       );
 
-      // ------------------------------------------------
-      // DETERMINE START
-      // ------------------------------------------------
+      // ============================================
+      // DETERMINE BACKEND START
+      // ============================================
 
       let backendStartId;
-      let mapStartCoordinate;
+
+      // ============================================
+      // GPS START
+      // ============================================
 
       if (currentLocation) {
-        /*
-         * GPS is outside the fixed database locations.
-         *
-         * For now, use the nearest NER location as the
-         * backend routing origin.
-         */
-
         let nearestLocation = null;
-        let nearestDistance = Infinity;
 
-        locations.forEach((location) => {
-          const lat =
-            Number(location.latitude);
+        let nearestDistance =
+          Infinity;
 
-          const lng =
-            Number(location.longitude);
+        locations.forEach(
+          (location) => {
+            const lat =
+              Number(
+                location.latitude
+              );
 
-          const distance =
-            Math.pow(
-              lat -
-                currentLocation.latitude,
-              2
-            ) +
-            Math.pow(
-              lng -
-                currentLocation.longitude,
-              2
-            );
+            const lng =
+              Number(
+                location.longitude
+              );
 
-          if (distance < nearestDistance) {
-            nearestDistance = distance;
-            nearestLocation = location;
+            const distance =
+              Math.pow(
+                lat -
+                  currentLocation.latitude,
+                2
+              ) +
+              Math.pow(
+                lng -
+                  currentLocation.longitude,
+                2
+              );
+
+            if (
+              distance <
+              nearestDistance
+            ) {
+              nearestDistance =
+                distance;
+
+              nearestLocation =
+                location;
+            }
           }
-        });
+        );
 
         if (!nearestLocation) {
           throw new Error(
@@ -301,17 +620,21 @@ export default function Route({ navigation }) {
         }
 
         backendStartId =
-          Number(nearestLocation.id);
-
-        mapStartCoordinate =
-          currentLocation;
+          Number(
+            nearestLocation.id
+          );
 
         console.log(
-          "📍 GPS NEAREST NER LOCATION:",
-          nearestLocation.name,
-          nearestLocation.id
+          "📍 GPS NEAREST LOCATION:",
+          nearestLocation.name
         );
-      } else {
+      }
+
+      // ============================================
+      // MANUAL START
+      // ============================================
+
+      else {
         const startLocation =
           locations.find(
             (item) =>
@@ -326,21 +649,14 @@ export default function Route({ navigation }) {
         }
 
         backendStartId =
-          Number(startLocation.id);
-
-        mapStartCoordinate = {
-          latitude: Number(
-            startLocation.latitude
-          ),
-          longitude: Number(
-            startLocation.longitude
-          ),
-        };
+          Number(
+            startLocation.id
+          );
       }
 
-      // ------------------------------------------------
+      // ============================================
       // DESTINATION
-      // ------------------------------------------------
+      // ============================================
 
       const destinationLocation =
         locations.find(
@@ -356,18 +672,14 @@ export default function Route({ navigation }) {
       }
 
       const backendDestinationId =
-        Number(destinationLocation.id);
+        Number(
+          destinationLocation.id
+        );
 
-      const mapDestinationCoordinate = {
-        latitude: Number(
-          destinationLocation.latitude
-        ),
-        longitude: Number(
-          destinationLocation.longitude
-        ),
-      };
+      // ============================================
+      // SAME LOCATION CHECK
+      // ============================================
 
-      // Same location check
       if (
         backendStartId ===
         backendDestinationId
@@ -377,49 +689,115 @@ export default function Route({ navigation }) {
         );
       }
 
-      console.log(
-        "🚀 BACKEND ROUTE:",
-        backendStartId,
-        "→",
-        backendDestinationId
-      );
+      // ============================================
+      // ROUTE ANALYSIS
+      // ONLINE → OFFLINE
+      // ============================================
 
-      // ------------------------------------------------
-      // BACKEND INTELLIGENCE
-      // ------------------------------------------------
+      let routeResult;
 
-      const backendResult =
-        await analyzeRoute(
-          backendStartId,
-          backendDestinationId
+      try {
+        // --------------------------------------------
+        // ONLINE BACKEND
+        // --------------------------------------------
+
+        console.log(
+          "🌐 Trying online backend route analysis..."
         );
 
-      setResult(backendResult);
+        routeResult =
+          await analyzeRoute(
+            backendStartId,
+            backendDestinationId
+          );
 
-      console.log(
-        "✅ BACKEND ROUTE RESULT:",
-        backendResult
-      );
-
-      // ------------------------------------------------
-      // OSRM MAP ROUTE
-      // ------------------------------------------------
-
-      const roadCoordinates =
-        await getOSRMRoute(
-          mapStartCoordinate,
-          mapDestinationCoordinate
+        console.log(
+          "✅ ONLINE ROUTE RESULT:",
+          routeResult
         );
 
-      if (roadCoordinates.length > 0) {
-        setRouteCoordinates(
-          roadCoordinates
+        routeResult = {
+          ...routeResult,
+          routingMode: "online",
+        };
+      } catch (onlineError) {
+        // --------------------------------------------
+        // OFFLINE FALLBACK
+        // --------------------------------------------
+
+        console.log(
+          "📱 Backend unavailable. Switching to offline routing..."
         );
+
+        console.log(
+          "⚠️ Online route error:",
+          onlineError.message
+        );
+
+        try {
+          setStatus(
+            "📱 Internet unavailable. Calculating route offline..."
+          );
+
+          routeResult =
+            await analyzeOfflineRoute(
+              backendStartId,
+              backendDestinationId
+            );
+
+          console.log(
+            "✅ OFFLINE ROUTE RESULT:",
+            routeResult
+          );
+
+          routeResult = {
+            ...routeResult,
+            routingMode: "offline",
+          };
+        } catch (offlineError) {
+          console.log(
+            "❌ OFFLINE ROUTING ERROR:",
+            offlineError
+          );
+
+          throw new Error(
+            offlineError.message ||
+              "Offline route calculation failed."
+          );
+        }
       }
 
-      setStatus(
-        "✅ Route analysis completed."
+      // ============================================
+      // SAVE RESULT
+      // ============================================
+
+      setResult(routeResult);
+
+      // ============================================
+      // DRAW BOTH CALCULATED ROUTES
+      // ============================================
+
+      displayCalculatedRoutesOnMap(
+        routeResult,
+        locations
       );
+
+      // ----------------------------------------------
+      // FINAL STATUS
+      // ----------------------------------------------
+
+      if (
+        routeResult.routingMode ===
+        "offline"
+      ) {
+        setStatus(
+          "📱 Offline route analysis completed."
+        );
+      } else {
+        setStatus(
+          "✅ Route analysis completed."
+        );
+      }
     } catch (error) {
       console.log(
         "❌ ROUTE ERROR:",
@@ -437,9 +815,9 @@ export default function Route({ navigation }) {
     }
   };
 
-  // --------------------------------------------------
+  // ==================================================
   // SELECTED LOCATIONS
-  // --------------------------------------------------
+  // ==================================================
 
   const selectedStart =
     locations.find(
@@ -455,42 +833,51 @@ export default function Route({ navigation }) {
         String(destinationId)
     );
 
-  // --------------------------------------------------
+  // ==================================================
   // MAP CENTER
-  // --------------------------------------------------
+  // ==================================================
 
   const mapCenter =
     currentLocation ||
     (selectedStart
       ? {
-          latitude: Number(
-            selectedStart.latitude
-          ),
-          longitude: Number(
-            selectedStart.longitude
-          ),
+          latitude:
+            Number(
+              selectedStart.latitude
+            ),
+          longitude:
+            Number(
+              selectedStart.longitude
+            ),
         }
       : {
           latitude: 26.1445,
           longitude: 91.7362,
         });
 
-  // --------------------------------------------------
-  // FORMAT ETA
-  // --------------------------------------------------
+  // ==================================================
+  // ETA FORMAT
+  // ==================================================
 
-  const formatETA = (minutes) => {
-    if (!minutes) {
+  const formatETA = (
+    minutes
+  ) => {
+    if (
+      minutes === null ||
+      minutes === undefined
+    ) {
       return "N/A";
     }
 
-    const hours = Math.floor(
-      minutes / 60
-    );
+    const hours =
+      Math.floor(
+        Number(minutes) / 60
+      );
 
-    const mins = Math.round(
-      minutes % 60
-    );
+    const mins =
+      Math.round(
+        Number(minutes) % 60
+      );
 
     if (hours === 0) {
       return `${mins} min`;
@@ -499,9 +886,9 @@ export default function Route({ navigation }) {
     return `${hours} hr ${mins} min`;
   };
 
-  // --------------------------------------------------
-  // RENDER
-  // --------------------------------------------------
+  // ==================================================
+  // UI
+  // ==================================================
 
   return (
     <ScrollView
@@ -509,7 +896,9 @@ export default function Route({ navigation }) {
         styles.container
       }
     >
-      {/* HEADER */}
+      {/* ==================================================
+          TITLE
+      ================================================== */}
 
       <Text style={styles.title}>
         Find Best Route
@@ -520,7 +909,9 @@ export default function Route({ navigation }) {
         across the North Eastern Region.
       </Text>
 
-      {/* STATUS */}
+      {/* ==================================================
+          STATUS
+      ================================================== */}
 
       <View style={styles.statusBox}>
         {(loadingLocations ||
@@ -536,7 +927,9 @@ export default function Route({ navigation }) {
         </Text>
       </View>
 
-      {/* START LOCATION */}
+      {/* ==================================================
+          STARTING LOCATION
+      ================================================== */}
 
       <Text style={styles.label}>
         Starting Location
@@ -552,17 +945,35 @@ export default function Route({ navigation }) {
           onValueChange={(value) => {
             setStartId(value);
 
-            /*
-             * Manual selection overrides GPS.
-             */
             if (value) {
+              // Manual selection overrides GPS
+
+              if (
+                locationSubscription
+              ) {
+                locationSubscription.remove();
+
+                setLocationSubscription(
+                  null
+                );
+              }
+
+              setGpsTracking(false);
+
               setCurrentLocation(
                 null
               );
             }
 
             setResult(null);
-            setRouteCoordinates([]);
+
+            setFastestRouteCoordinates(
+              []
+            );
+
+            setSafestRouteCoordinates(
+              []
+            );
           }}
           style={styles.picker}
         >
@@ -585,12 +996,20 @@ export default function Route({ navigation }) {
         </Picker>
       </View>
 
-      {/* GPS */}
+      {/* ==================================================
+          GPS BUTTON
+      ================================================== */}
 
       <TouchableOpacity
-        style={styles.gpsButton}
+        style={[
+          styles.gpsButton,
+          gpsTracking &&
+            styles.gpsActiveButton,
+        ]}
         onPress={
-          useCurrentLocation
+          gpsTracking
+            ? stopGPSTracking
+            : startGPSTracking
         }
         disabled={loadingRoute}
       >
@@ -599,11 +1018,15 @@ export default function Route({ navigation }) {
             styles.gpsButtonText
           }
         >
-          📍 Use My Current GPS Location
+          {gpsTracking
+            ? "🛑 Stop GPS Tracking"
+            : "📍 Use My Current GPS Location"}
         </Text>
       </TouchableOpacity>
 
-      {/* DESTINATION */}
+      {/* ==================================================
+          DESTINATION
+      ================================================== */}
 
       <Text style={styles.label}>
         Destination
@@ -619,10 +1042,19 @@ export default function Route({ navigation }) {
             destinationId
           }
           onValueChange={(value) => {
-            setDestinationId(value);
+            setDestinationId(
+              value
+            );
 
             setResult(null);
-            setRouteCoordinates([]);
+
+            setFastestRouteCoordinates(
+              []
+            );
+
+            setSafestRouteCoordinates(
+              []
+            );
           }}
           style={styles.picker}
         >
@@ -645,7 +1077,9 @@ export default function Route({ navigation }) {
         </Picker>
       </View>
 
-      {/* FIND ROUTE BUTTON */}
+      {/* ==================================================
+          FIND ROUTE BUTTON
+      ================================================== */}
 
       <TouchableOpacity
         style={[
@@ -669,10 +1103,13 @@ export default function Route({ navigation }) {
         </Text>
       </TouchableOpacity>
 
-      {/* MAP */}
+      {/* ==================================================
+          MAP
+      ================================================== */}
 
       <View style={styles.mapContainer}>
         <MapView
+          ref={mapRef}
           style={styles.map}
           initialRegion={{
             latitude:
@@ -683,7 +1120,9 @@ export default function Route({ navigation }) {
             longitudeDelta: 4,
           }}
         >
-          {/* GPS MARKER */}
+          {/* ==================================================
+              CURRENT GPS
+          ================================================== */}
 
           {currentLocation && (
             <Marker
@@ -691,22 +1130,30 @@ export default function Route({ navigation }) {
                 currentLocation
               }
               title="Your Current Location"
-              description="GPS location"
+              description={
+                gpsTracking
+                  ? "Live GPS tracking"
+                  : "GPS location"
+              }
             />
           )}
 
-          {/* START MARKER */}
+          {/* ==================================================
+              START
+          ================================================== */}
 
           {!currentLocation &&
             selectedStart && (
               <Marker
                 coordinate={{
-                  latitude: Number(
-                    selectedStart.latitude
-                  ),
-                  longitude: Number(
-                    selectedStart.longitude
-                  ),
+                  latitude:
+                    Number(
+                      selectedStart.latitude
+                    ),
+                  longitude:
+                    Number(
+                      selectedStart.longitude
+                    ),
                 }}
                 title={
                   selectedStart.name
@@ -715,17 +1162,21 @@ export default function Route({ navigation }) {
               />
             )}
 
-          {/* DESTINATION MARKER */}
+          {/* ==================================================
+              DESTINATION
+          ================================================== */}
 
           {selectedDestination && (
             <Marker
               coordinate={{
-                latitude: Number(
-                  selectedDestination.latitude
-                ),
-                longitude: Number(
-                  selectedDestination.longitude
-                ),
+                latitude:
+                  Number(
+                    selectedDestination.latitude
+                  ),
+                longitude:
+                  Number(
+                    selectedDestination.longitude
+                  ),
               }}
               title={
                 selectedDestination.name
@@ -734,22 +1185,97 @@ export default function Route({ navigation }) {
             />
           )}
 
-          {/* ROAD ROUTE */}
+          {/* ==================================================
+              SAFEST ROUTE
+              GREEN
+          ================================================== */}
 
-          {routeCoordinates.length >
-            0 && (
+          {safestRouteCoordinates.length >
+            1 && (
             <Polyline
               coordinates={
-                routeCoordinates
+                safestRouteCoordinates
+              }
+              strokeWidth={9}
+              strokeColor="#30483B"
+              lineCap="round"
+              lineJoin="round"
+              zIndex={1}
+            />
+          )}
+
+          {/* ==================================================
+              FASTEST ROUTE
+              MUSTARD / YELLOW
+          ================================================== */}
+
+          {fastestRouteCoordinates.length >
+            1 && (
+            <Polyline
+              coordinates={
+                fastestRouteCoordinates
               }
               strokeWidth={5}
-              strokeColor="#A9573F"
+              strokeColor="#B8944A"
+              lineCap="round"
+              lineJoin="round"
+              zIndex={2}
             />
           )}
         </MapView>
+
+        {/* ==================================================
+            MAP LEGEND
+        ================================================== */}
+
+        {result && (
+          <View style={styles.mapLegend}>
+            <View style={styles.legendRow}>
+              <View
+                style={[
+                  styles.legendLine,
+                  {
+                    backgroundColor:
+                      "#30483B",
+                  },
+                ]}
+              />
+
+              <Text
+                style={
+                  styles.legendText
+                }
+              >
+                🛡 Safest Route
+              </Text>
+            </View>
+
+            <View style={styles.legendRow}>
+              <View
+                style={[
+                  styles.legendLine,
+                  {
+                    backgroundColor:
+                      "#B8944A",
+                  },
+                ]}
+              />
+
+              <Text
+                style={
+                  styles.legendText
+                }
+              >
+                ⚡ Fastest Route
+              </Text>
+            </View>
+          </View>
+        )}
       </View>
 
-      {/* ROUTE RESULTS */}
+      {/* ==================================================
+          RESULTS
+      ================================================== */}
 
       {result && (
         <View
@@ -765,7 +1291,9 @@ export default function Route({ navigation }) {
             Route Intelligence
           </Text>
 
-          {/* RECOMMENDATION */}
+          {/* ==================================================
+              RECOMMENDATION
+          ================================================== */}
 
           <View
             style={
@@ -790,17 +1318,19 @@ export default function Route({ navigation }) {
             </Text>
           </View>
 
-          {/* FASTEST */}
+          {/* ==================================================
+              FASTEST ROUTE
+          ================================================== */}
 
           {result.fastestRoute && (
             <View
               style={
-                styles.routeCard
+                styles.fastestCard
               }
             >
               <Text
                 style={
-                  styles.cardTitle
+                  styles.fastestTitle
                 }
               >
                 ⚡ Fastest Route
@@ -866,24 +1396,30 @@ export default function Route({ navigation }) {
                 style={styles.metric}
               >
                 Hazards:{" "}
-                {result.fastestRoute
-                  .hazardsEncountered
-                  ?.length || 0}
+                {
+                  result
+                    .fastestRoute
+                    .hazardsEncountered
+                    ?.length ||
+                  0
+                }
               </Text>
             </View>
           )}
 
-          {/* SAFEST */}
+          {/* ==================================================
+              SAFEST ROUTE
+          ================================================== */}
 
           {result.safestRoute && (
             <View
               style={
-                styles.routeCard
+                styles.safestCard
               }
             >
               <Text
                 style={
-                  styles.cardTitle
+                  styles.safestTitle
                 }
               >
                 🛡 Safest Route
@@ -949,14 +1485,38 @@ export default function Route({ navigation }) {
                 style={styles.metric}
               >
                 Hazards:{" "}
-                {result.safestRoute
-                  .hazardsEncountered
-                  ?.length || 0}
+                {
+                  result
+                    .safestRoute
+                    .hazardsEncountered
+                    ?.length ||
+                  0
+                }
               </Text>
             </View>
           )}
 
-          {/* AI ENGINE STATUS */}
+          {/* ==================================================
+              ROUTING MODE
+          ================================================== */}
+
+          {result.routingMode && (
+            <Text
+              style={
+                styles.aiStatus
+              }
+            >
+              Routing Mode:{" "}
+              {result.routingMode ===
+              "offline"
+                ? "📱 Offline SQLite"
+                : "🌐 Online Backend"}
+            </Text>
+          )}
+
+          {/* ==================================================
+              AI ENGINE STATUS
+          ================================================== */}
 
           {result.aiEngineStatus && (
             <Text
@@ -1048,6 +1608,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
+  gpsActiveButton: {
+    backgroundColor: "#A9573F",
+  },
+
   gpsButtonText: {
     color: "#20231F",
     fontSize: 15,
@@ -1073,14 +1637,47 @@ const styles = StyleSheet.create({
   },
 
   mapContainer: {
-    height: 350,
+    height: 400,
     marginTop: 25,
     borderRadius: 15,
     overflow: "hidden",
+    position: "relative",
   },
 
   map: {
     flex: 1,
+  },
+
+  mapLegend: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    backgroundColor: "rgba(237, 232, 220, 0.95)",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    elevation: 4,
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
+
+  legendRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 4,
+  },
+
+  legendLine: {
+    width: 28,
+    height: 6,
+    borderRadius: 5,
+    marginRight: 8,
+  },
+
+  legendText: {
+    color: "#20231F",
+    fontSize: 13,
+    fontWeight: "bold",
   },
 
   resultsContainer: {
@@ -1115,14 +1712,32 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
 
-  routeCard: {
+  fastestCard: {
+    backgroundColor: "#E5D6A9",
+    padding: 18,
+    borderRadius: 15,
+    marginBottom: 15,
+    borderWidth: 2,
+    borderColor: "#B8944A",
+  },
+
+  safestCard: {
     backgroundColor: "#CBD0C0",
     padding: 18,
     borderRadius: 15,
     marginBottom: 15,
+    borderWidth: 2,
+    borderColor: "#30483B",
   },
 
-  cardTitle: {
+  fastestTitle: {
+    fontSize: 19,
+    fontWeight: "bold",
+    color: "#20231F",
+    marginBottom: 12,
+  },
+
+  safestTitle: {
     fontSize: 19,
     fontWeight: "bold",
     color: "#20231F",
@@ -1140,5 +1755,6 @@ const styles = StyleSheet.create({
     color: "#30483B",
     fontSize: 13,
     marginTop: 5,
+    marginBottom: 5,
   },
 });

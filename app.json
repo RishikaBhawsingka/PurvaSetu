@@ -34,6 +34,12 @@
         "projectId": "13b3bbaf-f127-431f-b619-dc555acba0b2"
       }
     },
+<<<<<<< HEAD
     "owner": "sneha_kesharwani"
+=======
+    "plugins": [
+      "expo-sqlite"
+    ]
+>>>>>>> 5323e14c1873559427d11871fe1b4b2c33e9dab6
   }
 }
