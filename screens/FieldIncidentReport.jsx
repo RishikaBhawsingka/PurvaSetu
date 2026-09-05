@@ -238,7 +238,7 @@ function IncidentCard({ incident }) {
 // ============================================================
 // Main screen
 // ============================================================
-export default function FieldIncidentReport() {
+export default function FieldIncidentReport({ navigation }) {
   const [highway, setHighway] = useState(null);
   const [disruptionType, setDisruptionType] = useState(null);
   const [severity, setSeverity] = useState(null);
@@ -255,6 +255,19 @@ export default function FieldIncidentReport() {
   const severityLabel = (value) => {
     const found = SEVERITY_LEVELS.find((s) => s.value === value);
     return found ? found.label : "";
+  };
+
+  const handleLogout = () => {
+    setMenuOpen(false);
+    const rootNav = navigation?.getParent?.() || navigation;
+    if (rootNav?.reset) {
+      rootNav.reset({
+        index: 0,
+        routes: [{ name: "Home" }],
+      });
+    } else {
+      rootNav?.navigate?.("Home");
+    }
   };
 
   const handleSubmit = () => {
@@ -334,7 +347,7 @@ export default function FieldIncidentReport() {
                   <TouchableOpacity
                     style={styles.profileMenuItem}
                     activeOpacity={0.7}
-                    onPress={() => setMenuOpen(false)}
+                    onPress={handleLogout}
                   >
                     <Ionicons name="log-out-outline" size={16} color={COLORS.terracotta} />
                     <Text style={styles.profileMenuLogoutText}>Logout</Text>
