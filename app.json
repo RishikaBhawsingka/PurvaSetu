@@ -21,15 +21,19 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.rishika_bhawsingka.skrb"
+      "package": "com.snehakesharwani.skrb"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      "expo-status-bar"
+    ],
     "extra": {
       "eas": {
-        "projectId": "746dabaf-0ea9-4deb-b00f-ed93ddc016db"
+        "projectId": "13b3bbaf-f127-431f-b619-dc555acba0b2"
       }
-    }
+    },
+    "owner": "sneha_kesharwani"
   }
 }
